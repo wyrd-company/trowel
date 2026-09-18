@@ -25,7 +25,6 @@ type Config struct {
 type Server struct {
 	Listen            string        `yaml:"listen"`
 	ReadHeaderTimeout time.Duration `yaml:"read_header_timeout"`
-	MaxBodyBytes      int64         `yaml:"max_body_bytes"`
 }
 
 // NATS configures the connection to the NATS server.
@@ -46,6 +45,7 @@ type Transform struct {
 type Webhook struct {
 	Path            string    `yaml:"path"`
 	Subject         string    `yaml:"subject"`
+	MaxBodyBytes    int64     `yaml:"max_body_bytes"`
 	MessageIDHeader string    `yaml:"message_id_header"`
 	Transform       Transform `yaml:"transform"`
 	Verify          *Verify   `yaml:"verify"`
@@ -211,9 +211,6 @@ func (c *Config) applyDefaults() {
 	if c.Server.ReadHeaderTimeout == 0 {
 		c.Server.ReadHeaderTimeout = DefaultReadHeaderTimeout
 	}
-	if c.Server.MaxBodyBytes == 0 {
-		c.Server.MaxBodyBytes = DefaultMaxBodyBytes
-	}
 	if c.NATS.URL == "" {
 		c.NATS.URL = DefaultNATSURL
 	}
@@ -222,6 +219,9 @@ func (c *Config) applyDefaults() {
 	}
 	for i := range c.Webhooks {
 		w := &c.Webhooks[i]
+		if w.MaxBodyBytes == 0 {
+			w.MaxBodyBytes = DefaultMaxBodyBytes
+		}
 		if w.Verify != nil {
 			applyHMACDefaults(w.Verify.HMAC)
 			applyEd25519Defaults(w.Verify.Ed25519)
@@ -310,6 +310,9 @@ func (c *Config) Validate() error {
 		paths[w.Path] = true
 		if w.Subject == "" {
 			return fmt.Errorf("%s: subject is required", where)
+		}
+		if w.MaxBodyBytes < 0 {
+			return fmt.Errorf("%s: max_body_bytes must be positive", where)
 		}
 		if w.Verify != nil {
 			if err := validateOneOf(where+".verify", w.Verify.HMAC != nil, w.Verify.Ed25519 != nil, w.Verify.Static != nil); err != nil {

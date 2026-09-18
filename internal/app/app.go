@@ -41,7 +41,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 
 	pub := webhook.JetStreamPublisher{JS: js}
 	for _, w := range cfg.Webhooks {
-		h, err := webhook.New(w, pub, cfg.Server.MaxBodyBytes, log)
+		h, err := webhook.New(w, pub, log)
 		if err != nil {
 			nc.Close()
 			return nil, err

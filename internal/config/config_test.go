@@ -35,8 +35,11 @@ func TestParseAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Listen != DefaultListen || cfg.Server.MaxBodyBytes != DefaultMaxBodyBytes {
+	if cfg.Server.Listen != DefaultListen || cfg.Server.ReadHeaderTimeout != DefaultReadHeaderTimeout {
 		t.Errorf("server defaults not applied: %+v", cfg.Server)
+	}
+	if cfg.Webhooks[0].MaxBodyBytes != DefaultMaxBodyBytes {
+		t.Errorf("webhook max_body_bytes default not applied: %d", cfg.Webhooks[0].MaxBodyBytes)
 	}
 	h := cfg.Webhooks[0].Verify.HMAC
 	if h.Algorithm != "sha256" || h.Encoding != "hex" || h.Secret != "s3cret" {
@@ -72,6 +75,7 @@ func TestValidateErrors(t *testing.T) {
 		"secret and file":  "webhooks:\n  - path: /a\n    subject: a\n    verify:\n      static: {header: X, secret: s, secret_file: /f}\n",
 		"unknown field":    "webhooks:\n  - path: /a\n    subject: a\n    bogus: 1\n",
 		"dup path":         "webhooks:\n  - {path: /a, subject: a}\n  - {path: /a, subject: b}\n",
+		"negative body":    "webhooks:\n  - {path: /a, subject: a, max_body_bytes: -1}\n",
 	}
 	for name, raw := range cases {
 		if _, err := Parse([]byte(raw)); err == nil {

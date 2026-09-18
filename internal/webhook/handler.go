@@ -30,13 +30,12 @@ type Handler struct {
 	transform *transform.Transformer
 	subject   *subject.Template
 	publisher Publisher
-	maxBody   int64
 	log       *slog.Logger
 	now       func() time.Time
 }
 
 // New builds a Handler from config.
-func New(cfg config.Webhook, pub Publisher, maxBody int64, log *slog.Logger) (*Handler, error) {
+func New(cfg config.Webhook, pub Publisher, log *slog.Logger) (*Handler, error) {
 	v, err := signing.NewVerifier(cfg.Verify)
 	if err != nil {
 		return nil, fmt.Errorf("webhook %s: %w", cfg.Path, err)
@@ -55,7 +54,6 @@ func New(cfg config.Webhook, pub Publisher, maxBody int64, log *slog.Logger) (*H
 		transform: t,
 		subject:   tpl,
 		publisher: pub,
-		maxBody:   maxBody,
 		log:       log.With("webhook", cfg.Path),
 		now:       time.Now,
 	}, nil
@@ -70,7 +68,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBody))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.cfg.MaxBodyBytes))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {

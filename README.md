@@ -44,7 +44,6 @@ See [`config.example.yml`](config.example.yml) for a complete annotated example.
 | --- | --- | --- |
 | `listen` | `:8080` | |
 | `read_header_timeout` | `10s` | Guards against idle connections holding request slots |
-| `max_body_bytes` | `10485760` | Larger requests get `413` |
 
 ### `nats`
 
@@ -61,6 +60,7 @@ The relay does not create streams. A stream must already cover every subject a w
 | Field | Notes |
 | --- | --- |
 | `path` | Route, must start with `/`. `POST` only. |
+| `max_body_bytes` | Default `10485760`. Larger requests get `413`. |
 | `subject` | Template. `{headers.Name}` and `{payload.a.b[0]}` expand from the message **after** transforms. Header lookup is case-insensitive. Expanded values have `.`, `*`, `>`, and whitespace replaced with `_`. A reference that resolves to nothing returns `422`. |
 | `message_id_header` | Copied into `Nats-Msg-Id` so JetStream de-duplicates retries from the sender. |
 | `transform.headers`, `transform.payload` | JSONata, see below. |

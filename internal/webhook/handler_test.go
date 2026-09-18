@@ -42,13 +42,14 @@ func newHandler(t *testing.T, pub Publisher) *Handler {
 	cfg := config.Webhook{
 		Path:            "/hooks/shop",
 		Subject:         "shop.{headers.X-Event-Type}.{payload.region}",
+		MaxBodyBytes:    1 << 20,
 		MessageIDHeader: "X-Delivery-Id",
 		Transform:       config.Transform{Payload: `{"region": payload.region, "n": $count(payload.items)}`},
 		Verify: &config.Verify{HMAC: &config.HMAC{
 			Algorithm: "sha256", Header: "X-Signature", Prefix: "sha256=", Encoding: "hex", Secret: "shh",
 		}},
 	}
-	h, err := New(cfg, pub, 1<<20, slog.New(slog.DiscardHandler))
+	h, err := New(cfg, pub, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +118,8 @@ func TestHandlerRejects(t *testing.T) {
 }
 
 func TestHandlerBodyLimit(t *testing.T) {
-	cfg := config.Webhook{Path: "/x", Subject: "x"}
-	h, _ := New(cfg, &fakePublisher{}, 8, slog.New(slog.DiscardHandler))
+	cfg := config.Webhook{Path: "/x", Subject: "x", MaxBodyBytes: 8}
+	h, _ := New(cfg, &fakePublisher{}, slog.New(slog.DiscardHandler))
 	req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader("more than eight bytes"))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
