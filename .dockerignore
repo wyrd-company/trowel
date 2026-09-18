@@ -1,0 +1,6 @@
+.git
+.github
+*.md
+docker-compose.yml
+config*.yml
+Taskfile.yml

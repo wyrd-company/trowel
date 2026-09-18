@@ -1,0 +1,55 @@
+version: "3"
+
+vars:
+  VERSION: '{{.VERSION | default "dev"}}'
+  IMAGE: ghcr.io/wyrd-company/nats-relay
+  LDFLAGS: -s -w -X github.com/wyrd-company/nats-relay/internal/app.Version={{.VERSION}}
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  format:
+    desc: Format Go sources
+    cmds:
+      - gofmt -w .
+
+  lint:
+    desc: Vet and check formatting
+    cmds:
+      - go vet ./...
+      - test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  build:
+    desc: Build the binary into bin/
+    cmds:
+      - CGO_ENABLED=0 go build -trimpath -ldflags="{{.LDFLAGS}}" -o bin/nats-relay ./cmd/nats-relay
+
+  validate:
+    desc: Validate a config file (CONFIG=path)
+    vars:
+      CONFIG: '{{.CONFIG | default "config.example.yml"}}'
+    cmds:
+      - go run ./cmd/nats-relay -config {{.CONFIG}} -validate
+
+  docker:build:
+    desc: Build the container image
+    cmds:
+      - docker build --build-arg VERSION={{.VERSION}} -t {{.IMAGE}}:{{.VERSION}} .
+
+  up:
+    desc: Start NATS and the relay with docker compose
+    cmds:
+      - docker compose up --build
+
+  down:
+    desc: Stop docker compose services
+    cmds:
+      - docker compose down

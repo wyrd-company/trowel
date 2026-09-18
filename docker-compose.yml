@@ -1,0 +1,53 @@
+services:
+  nats:
+    image: nats:2.11-alpine
+    command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8222/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Creates the stream the example config expects. Replace with your own
+  # stream management in real deployments; the relay never creates streams.
+  nats-init:
+    image: natsio/nats-box:latest
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        nats --server nats://nats:4222 stream info EVENTS >/dev/null 2>&1 ||
+        nats --server nats://nats:4222 stream add EVENTS
+        --subjects "github.>,dlq.>" --defaults
+
+  nats-relay:
+    image: ghcr.io/wyrd-company/nats-relay:${NATS_RELAY_VERSION:-dev}
+    build:
+      context: .
+      args:
+        VERSION: ${NATS_RELAY_VERSION:-dev}
+    depends_on:
+      nats:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      NATS_URL: nats://nats:4222
+      NATS_RELAY_LOG_LEVEL: ${NATS_RELAY_LOG_LEVEL:-info}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-change-me}
+      DEPLOY_HMAC_SECRET: ${DEPLOY_HMAC_SECRET:-change-me-too}
+    volumes:
+      - ${NATS_RELAY_CONFIG:-./config.example.yml}:/config/config.yml:ro
+    ports:
+      - "${NATS_RELAY_PORT:-8080}:8080"
+
+volumes:
+  nats-data:
