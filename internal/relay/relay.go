@@ -215,7 +215,7 @@ func (w *Worker) deadLetter(msg jetstream.Msg, m *message.Message, cause error, 
 	out.Header.Set("Relay-Name", w.relay.Name)
 	out.Header.Set("Relay-Destination", w.dest.Name)
 	out.Header.Set("Relay-Attempts", strconv.FormatUint(attempt, 10))
-	out.Header.Set("Relay-Error", strings.NewReplacer("\r", " ", "\n", " ").Replace(cause.Error()))
+	out.Header.Set("Relay-Error", headerSafe(cause.Error()))
 	out.Header.Set("Relay-Failed-At", time.Now().UTC().Format(time.RFC3339))
 	if md, err := msg.Metadata(); err == nil {
 		out.Header.Set("Relay-Origin-Stream", md.Stream)
@@ -228,6 +228,18 @@ func (w *Worker) deadLetter(msg jetstream.Msg, m *message.Message, cause error, 
 		return
 	}
 	w.log.Info("dead-lettered", "dlq", dlq)
+}
+
+// maxErrorHeader bounds Relay-Error so command stderr cannot bloat the
+// dead-letter message.
+const maxErrorHeader = 1024
+
+func headerSafe(s string) string {
+	s = strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
+	if len(s) > maxErrorHeader {
+		s = s[:maxErrorHeader] + "..."
+	}
+	return s
 }
 
 type permanentError struct{ err error }
