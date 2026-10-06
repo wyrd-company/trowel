@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wyrd-company/nats-relay/internal/config"
+	"github.com/wyrd-company/nats-webhook-relay/internal/config"
 )
 
 // ErrUnauthorized is returned by every Verifier on failure. Callers must not

@@ -1,4 +1,4 @@
-module github.com/wyrd-company/nats-relay
+module github.com/wyrd-company/nats-webhook-relay
 
 go 1.27.1
 

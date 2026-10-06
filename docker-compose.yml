@@ -28,8 +28,8 @@ services:
         nats --server nats://nats:4222 stream add EVENTS
         --subjects "github.>,dlq.>" --defaults
 
-  nats-relay:
-    image: ghcr.io/wyrd-company/nats-relay:${NATS_RELAY_VERSION:-dev}
+  nats-webhook-relay:
+    image: ghcr.io/wyrd-company/nats-webhook-relay:${NATS_RELAY_VERSION:-dev}
     build:
       context: .
       args:

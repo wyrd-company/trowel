@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/wyrd-company/nats-relay/internal/message"
+	"github.com/wyrd-company/nats-webhook-relay/internal/message"
 )
 
 func TestExpand(t *testing.T) {

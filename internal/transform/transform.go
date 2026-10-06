@@ -13,8 +13,8 @@ import (
 
 	jsonata "github.com/blues/jsonata-go"
 
-	"github.com/wyrd-company/nats-relay/internal/config"
-	"github.com/wyrd-company/nats-relay/internal/message"
+	"github.com/wyrd-company/nats-webhook-relay/internal/config"
+	"github.com/wyrd-company/nats-webhook-relay/internal/message"
 )
 
 // Transformer holds compiled expressions. The zero value is a no-op.

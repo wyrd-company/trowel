@@ -1,4 +1,4 @@
-# nats-relay
+# nats-webhook-relay
 
 A small Go service that bridges HTTP webhooks and NATS JetStream in both directions.
 
@@ -12,8 +12,8 @@ The first intended producer is GitHub webhooks, but nothing is GitHub-specific.
 ```sh
 cp config.example.yml config.yml     # edit paths, subjects, secrets
 export NATS_URL=nats://localhost:4222 GITHUB_WEBHOOK_SECRET=...
-go run ./cmd/nats-relay -config config.yml -validate
-go run ./cmd/nats-relay -config config.yml
+go run ./cmd/nats-webhook-relay -config config.yml -validate
+go run ./cmd/nats-webhook-relay -config config.yml
 ```
 
 With Docker Compose, which starts a JetStream-enabled NATS server alongside the relay:
@@ -50,7 +50,7 @@ See [`config.example.yml`](config.example.yml) for a complete annotated example.
 | Field | Default |
 | --- | --- |
 | `url` | `nats://127.0.0.1:4222` |
-| `name` | `nats-relay` |
+| `name` | `nats-webhook-relay` |
 | `creds_file` | none |
 
 The relay does not create streams. A stream must already cover every subject a webhook can publish to, every subject a relay consumes, and every DLQ subject. Publishing to an uncovered subject returns `503`.
@@ -147,7 +147,7 @@ Transforms run before subject expansion, so a computed field can drive routing.
 ```sh
 task test      # go test ./...
 task lint      # go vet + gofmt check
-task build     # bin/nats-relay
+task build     # bin/nats-webhook-relay
 task validate CONFIG=config.yml
 ```
 
@@ -155,4 +155,4 @@ The end-to-end test starts an embedded NATS server. No external services are nee
 
 ## Release
 
-Pushing a SemVer tag without a `v` prefix, for example `0.1.0`, builds a multi-arch image and publishes `ghcr.io/wyrd-company/nats-relay:0.1.0`, `:0.1`, and `:latest`. Pushes to `main` publish `:edge`.
+Pushing a SemVer tag without a `v` prefix, for example `0.1.0`, builds a multi-arch image and publishes `ghcr.io/wyrd-company/nats-webhook-relay:0.1.0`, `:0.1`, and `:latest`. Pushes to `main` publish `:edge`.

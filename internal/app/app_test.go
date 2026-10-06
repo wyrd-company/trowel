@@ -20,7 +20,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/wyrd-company/nats-relay/internal/config"
+	"github.com/wyrd-company/nats-webhook-relay/internal/config"
 )
 
 func startNATS(t *testing.T) (*server.Server, string) {

@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wyrd-company/nats-relay/internal/message"
-	"github.com/wyrd-company/nats-relay/internal/transform"
+	"github.com/wyrd-company/nats-webhook-relay/internal/message"
+	"github.com/wyrd-company/nats-webhook-relay/internal/transform"
 )
 
 var ref = regexp.MustCompile(`\{([^{}]+)\}`)

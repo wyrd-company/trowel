@@ -1,4 +1,4 @@
-# nats-relay example configuration.
+# nats-webhook-relay example configuration.
 # ${NAME} references are replaced from the environment at load time.
 # Every *_file field reads a mounted secret instead of an inline value.
 
@@ -8,7 +8,7 @@ server:
 
 nats:
   url: ${NATS_URL}
-  name: nats-relay
+  name: nats-webhook-relay
   # creds_file: /run/secrets/nats.creds
 
 # HTTP -> NATS. Each webhook is served at its path and publishes to JetStream.

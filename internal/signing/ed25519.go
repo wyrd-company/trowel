@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/wyrd-company/nats-relay/internal/config"
+	"github.com/wyrd-company/nats-webhook-relay/internal/config"
 )
 
 // Ed25519 signatures cover the ASCII string "<unix seconds>.<body>".

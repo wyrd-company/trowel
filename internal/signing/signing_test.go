@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wyrd-company/nats-relay/internal/config"
+	"github.com/wyrd-company/nats-webhook-relay/internal/config"
 )
 
 func TestHMACRoundTrip(t *testing.T) {

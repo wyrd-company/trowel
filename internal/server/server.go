@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wyrd-company/nats-relay/internal/config"
+	"github.com/wyrd-company/nats-webhook-relay/internal/config"
 )
 
 // Server is the inbound HTTP listener.
