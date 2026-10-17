@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/icon-dark.svg">
+    <img src="docs/assets/icon-light.svg" alt="Trowel icon" width="160">
+  </picture>
+</p>
+
 # Trowel
 
 A small Go service that bridges HTTP webhooks and NATS JetStream in both directions. Documentation lives at [wyrd.foo/docs/trowel](https://wyrd.foo/docs/trowel), published from [`docs/`](docs).

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="102 89 1050 1050" role="img" aria-labelledby="title">
+  <title id="title">trowel</title>
+  <defs>
+    <path id="handle" d="M559 296A68 68 0 0 1 695 296L685 490C685 515 650 525 650 545L650 648A22.5 22.5 0 0 1 605 648L605 545C605 525 569 515 569 490Z"/>
+    <path id="blade" d="M627 1000C560 900 480 720 476 660C472 615 540 600 588 612C588 660 605 700 627 728C649 700 666 660 666 612C714 600 782 615 778 660C774 720 694 900 627 1000Z"/>
+    <path id="head-in" d="M182 539L345 435L345 643Z"/>
+    <path id="head-out" d="M1072 797L909 693L909 901Z"/>
+    <mask id="gap-in" maskUnits="userSpaceOnUse" x="0" y="0" width="1260" height="1260">
+      <rect width="1260" height="1260" fill="#fff"/>
+      <g fill="#000" stroke="#000" stroke-width="56" stroke-linejoin="round">
+        <use href="#handle"/>
+        <use href="#blade"/>
+        <use href="#head-out" stroke-width="92"/>
+      </g>
+    </mask>
+    <mask id="gap-out" maskUnits="userSpaceOnUse" x="0" y="0" width="1260" height="1260">
+      <rect width="1260" height="1260" fill="#fff"/>
+      <g fill="#000" stroke="#000" stroke-width="56" stroke-linejoin="round">
+        <use href="#handle"/>
+        <use href="#blade"/>
+        <use href="#head-in" stroke-width="92"/>
+      </g>
+    </mask>
+  </defs>
+  <rect x="102" y="89" width="1050" height="1050" rx="210" fill="#0F1A2A"/>
+  <g fill="none" stroke-width="104">
+    <path mask="url(#gap-in)" stroke="#27AAE1" d="M330 539L869 539A141 141 0 0 1 991 750.5"/>
+    <path mask="url(#gap-out)" stroke="#8DC63F" d="M924 797L385 797A141 141 0 0 1 263 585.5"/>
+  </g>
+  <g stroke-width="36" stroke-linejoin="round">
+    <use href="#head-in" fill="#27AAE1" stroke="#27AAE1"/>
+    <use href="#head-out" fill="#8DC63F" stroke="#8DC63F"/>
+  </g>
+  <g fill="#E8EEF6">
+    <use href="#handle"/>
+    <use href="#blade"/>
+  </g>
+</svg>
