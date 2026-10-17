@@ -397,9 +397,9 @@ func relayTo(name, subject, url string) string {
 	return fmt.Sprintf("  - name: %s\n    subject: %s\n    destinations:\n      - name: api\n        http:\n          url: %q\n", name, subject, url)
 }
 
-// TestReloadDeliversNothingWhenStartFails queues messages for a new relay
-// whose generation then fails to start on a later relay, and expects the
-// new relay to deliver none of them.
+// TestReloadDeliversNothingWhenStartFails queues messages for new relays
+// whose generation then fails to start on a later relay, and expects none
+// of the new relays to take a message.
 func TestReloadDeliversNothingWhenStartFails(t *testing.T) {
 	dest, delivered := countingDest(t)
 	e := startReloadEnv(t, func(e *reloadEnv) string { return e.base(hookA) })
@@ -410,12 +410,25 @@ func TestReloadDeliversNothingWhenStartFails(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e.write(e.base(hookA) + "subjects:\n" + relayTo("backlog", "events.backlog", dest.URL) +
+	relays := "subjects:\n"
+	for i := range 8 {
+		relays += relayTo(fmt.Sprintf("backlog%d", i), "events.backlog", dest.URL)
+	}
+	e.write(e.base(hookA) + relays +
 		"  - name: missing\n    stream: NOPE\n    subject: other.x\n    destinations:\n      - name: d\n        command:\n          argv: [\"true\"]\n")
 	e.waitLog(reloadFailed, 1)
 	time.Sleep(500 * time.Millisecond)
 	if n := delivered.Load(); n != 0 {
 		t.Errorf("rejected generation delivered %d messages", n)
+	}
+	for i := range 8 {
+		info, err := e.js.Consumer(ctx, "EVENTS", fmt.Sprintf("relay-backlog%d-api", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.CachedInfo().Delivered.Consumer != 0 {
+			t.Errorf("rejected consumer backlog%d took %d messages", i, info.CachedInfo().Delivered.Consumer)
+		}
 	}
 }
 
