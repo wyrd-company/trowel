@@ -10,32 +10,35 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// urlShadow mirrors the path to every HTTP destination URL, so decoding
-// the unexpanded document with it applies the same null, alias, and merge
-// rules as decoding Config and yields the URLs as written.
+// urlShadow mirrors the path to every HTTP destination URL. Decoding the
+// expanded document with it applies the same null, alias, and merge rules
+// as decoding Config, and records the node each URL came from.
 type urlShadow struct {
 	Subjects []struct {
 		Destinations []struct {
 			HTTP *struct {
-				URL string `yaml:"url"`
+				URL urlNode `yaml:"url"`
 			} `yaml:"http"`
 		} `yaml:"destinations"`
 	} `yaml:"subjects"`
 }
 
-// urlTemplates decodes the URLs as written from doc, before ${NAME}
-// expansion.
-func urlTemplates(doc *yaml.Node) (urlShadow, error) {
-	var s urlShadow
-	err := doc.Decode(&s)
-	return s, err
+// urlNode records the node a value was decoded from, without decoding it,
+// so it accepts whatever the Config decode accepts.
+type urlNode struct{ node *yaml.Node }
+
+func (u *urlNode) UnmarshalYAML(n *yaml.Node) error {
+	u.node = n
+	return nil
 }
 
-// setTemplates copies the URLs as written onto cfg's HTTP destinations.
-// A shape that does not line up with cfg sets nothing, which leaves those
-// URLs fully redacted.
-func (c *Config) setTemplates(s urlShadow) {
-	if len(s.Subjects) != len(c.Subjects) {
+// setTemplates sets the URL as written on every HTTP destination whose
+// URL had ${NAME} references, using written from expandNode. A shape that
+// does not line up with c sets nothing, which leaves those URLs fully
+// redacted.
+func (c *Config) setTemplates(doc *yaml.Node, written map[*yaml.Node]string) {
+	var s urlShadow
+	if err := doc.Decode(&s); err != nil || len(s.Subjects) != len(c.Subjects) {
 		return
 	}
 	for i, sub := range s.Subjects {
@@ -44,8 +47,11 @@ func (c *Config) setTemplates(s urlShadow) {
 			continue
 		}
 		for j, d := range sub.Destinations {
-			if d.HTTP != nil && dests[j].HTTP != nil {
-				dests[j].HTTP.Template = d.HTTP.URL
+			if d.HTTP == nil || dests[j].HTTP == nil || d.HTTP.URL.node == nil {
+				continue
+			}
+			if t, ok := written[d.HTTP.URL.node]; ok {
+				dests[j].HTTP.Template = t
 			}
 		}
 	}
@@ -53,10 +59,10 @@ func (c *Config) setTemplates(s urlShadow) {
 
 // displayURL names an HTTP destination in logs, dead-letter headers, and
 // spans. It is the URL as written, with each ${NAME} that show lists
-// expanded and every other reference left as written, and its userinfo
-// replaced. It is empty, so the caller redacts the URL fully, when the URL
-// has no references, when expanded does not parse, or when the userinfo of
-// expanded would still show.
+// expanded and every other reference left as written. It is empty, so the
+// caller redacts the URL fully, when the URL has no references, when
+// expanded does not parse, or when expanded has userinfo that the written
+// form does not locate unambiguously.
 func displayURL(template, expanded string, show []string) string {
 	if !envRef.MatchString(template) {
 		return ""
@@ -65,41 +71,47 @@ func displayURL(template, expanded string, show []string) string {
 	if err != nil {
 		return ""
 	}
-	shown := envRef.ReplaceAllStringFunc(template, func(ref string) string {
+	if u.User != nil {
+		var ok bool
+		if template, ok = redactUserinfo(template); !ok {
+			return ""
+		}
+	}
+	return envRef.ReplaceAllStringFunc(template, func(ref string) string {
 		name := envRef.FindStringSubmatch(ref)[1]
 		if slices.Contains(show, name) {
 			return os.Getenv(name)
 		}
 		return ref
 	})
-	shown = redactUserinfo(shown)
-	if u.User != nil {
-		pass, _ := u.User.Password()
-		for _, part := range []string{u.User.Username(), pass} {
-			if part != "" && strings.Contains(shown, part) {
-				return ""
-			}
-		}
-	}
-	return shown
 }
 
-// redactUserinfo replaces anything between the scheme and an @ in the
-// authority with REDACTED:REDACTED.
-func redactUserinfo(u string) string {
-	scheme, rest, ok := strings.Cut(u, "://")
-	if !ok {
-		return u
+// redactUserinfo replaces the userinfo of a URL as written with
+// REDACTED:REDACTED. It reports false unless the written form fixes where
+// the userinfo is: the scheme and :// are literal, the authority holds a
+// literal @, and no reference in the authority expands to a delimiter that
+// could move its bounds.
+func redactUserinfo(template string) (string, bool) {
+	i := strings.Index(template, "://")
+	if i < 0 || envRef.MatchString(template[:i]) {
+		return "", false
 	}
+	rest := template[i+3:]
 	end := strings.IndexAny(rest, "/?#")
 	if end < 0 {
 		end = len(rest)
 	}
-	at := strings.LastIndex(rest[:end], "@")
-	if at < 0 {
-		return u
+	authority := rest[:end]
+	for _, m := range envRef.FindAllStringSubmatch(authority, -1) {
+		if strings.ContainsAny(os.Getenv(m[1]), "@/?#") {
+			return "", false
+		}
 	}
-	return scheme + "://REDACTED:REDACTED@" + rest[at+1:]
+	at := strings.LastIndex(authority, "@")
+	if at < 0 {
+		return "", false
+	}
+	return template[:i+3] + "REDACTED:REDACTED" + rest[at:], true
 }
 
 // validateShow checks that every name in show is referenced by template.

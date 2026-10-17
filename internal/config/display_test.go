@@ -118,18 +118,63 @@ func TestDisplayURLNeverShowsUserinfo(t *testing.T) {
 	t.Setenv("TEST_PREFIX", "http://")
 	t.Setenv("TEST_SLASHES", "//")
 	t.Setenv("TEST_CREDS", "generic-user:s3cret-pass")
+	t.Setenv("TEST_ENCODED", "generic%2Duser:s3cret%2Dpass")
+	t.Setenv("TEST_USER", "generic-user")
+	t.Setenv("TEST_EMPTY", "")
+	t.Setenv("TEST_FRAGMENT", "-")
 	cases := map[string]struct{ url, show string }{
 		"shown creds after unshown scheme":    {"${TEST_PREFIX}${TEST_CREDS}@example.test/path", "          show: [TEST_CREDS]\n"},
 		"literal creds after unshown scheme":  {"${TEST_PREFIX}generic-user:s3cret-pass@example.test/path", ""},
 		"literal creds after unshown slashes": {"https:${TEST_SLASHES}generic-user:s3cret-pass@example.test/path", ""},
 		"unparsable expanded url":             {"${TEST_PREFIX}generic-user:s3cret-pass@example.test/%zz", ""},
+		"encoded creds after unshown scheme":  {"${TEST_PREFIX}${TEST_ENCODED}@example.test/path", "          show: [TEST_ENCODED]\n"},
+		"creds split by an empty reference":   {"${TEST_PREFIX}${TEST_USER}:s3cret${TEST_EMPTY}pass@example.test/path", ""},
+		"creds split by a reference":          {"${TEST_PREFIX}${TEST_USER}:s3cret${TEST_FRAGMENT}pass@example.test/path", ""},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := displayOf(t, c.url, c.show)
-			if strings.Contains(got, "s3cret") || strings.Contains(got, "generic-user") {
+			if strings.Contains(got, "s3cret") || strings.Contains(got, "generic") {
 				t.Errorf("display %q shows userinfo", got)
 			}
 		})
+	}
+}
+
+// TestDisplayURLRedactsSplitCredsAtALiteralAuthority locates the userinfo
+// by the literal :// and @ even when references split it.
+func TestDisplayURLRedactsSplitCredsAtALiteralAuthority(t *testing.T) {
+	t.Setenv("TEST_USER", "generic-user")
+	t.Setenv("TEST_EMPTY", "")
+	t.Setenv("TEST_HOST", "a@b.example.test")
+	if got := displayOf(t, "http://${TEST_USER}:s3cret${TEST_EMPTY}pass@example.test/path", ""); got != "http://REDACTED:REDACTED@example.test/path" {
+		t.Errorf("display %q", got)
+	}
+	// A reference in the authority that holds @ could move it.
+	if got := displayOf(t, "http://user:s3cret@${TEST_HOST}/path", ""); got != "" {
+		t.Errorf("display %q, want full redaction", got)
+	}
+}
+
+// TestTemplatesAcceptTaggedExpansions keeps expansion-dependent tagged
+// values valid: capturing URLs as written must not validate them again.
+func TestTemplatesAcceptTaggedExpansions(t *testing.T) {
+	t.Setenv("TEST_B64_URL", "aHR0cHM6Ly9hcGkuZXhhbXBsZS50ZXN0L3g=")
+	t.Setenv("TEST_NULL", "null")
+	cfg, err := Parse([]byte(`subjects:
+  - name: s
+    subject: s
+    destinations:
+      - {name: a, http: {url: !!binary '${TEST_B64_URL}'}}
+      - {name: b, http: !!null '${TEST_NULL}', command: {argv: ["true"]}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Subjects[0].Destinations[0].HTTP.URL; got != "https://api.example.test/x" {
+		t.Errorf("url %q", got)
+	}
+	if cfg.Subjects[0].Destinations[1].HTTP != nil {
+		t.Error("http not null")
 	}
 }

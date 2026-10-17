@@ -224,17 +224,14 @@ func Parse(raw []byte) (*Config, error) {
 	}
 	var cfg Config
 	if doc.Kind != 0 {
-		templates, err := urlTemplates(&doc)
+		written, err := expandNode(&doc)
 		if err != nil {
-			return nil, fmt.Errorf("parse config: %w", err)
-		}
-		if err := expandNode(&doc); err != nil {
 			return nil, err
 		}
 		if err := decodeStrict(&doc, &cfg); err != nil {
 			return nil, fmt.Errorf("parse config: %w", err)
 		}
-		cfg.setTemplates(templates)
+		cfg.setTemplates(&doc, written)
 	}
 	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
