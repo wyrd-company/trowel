@@ -12,7 +12,9 @@
   "trowel-openbao-agent": {
     "image": "ghcr.io/wyrd-company/devcontainers/base:noble",
     "features": {
-      "ghcr.io/wyrd-company/devcontainers/openbao-agent:2": {},
+      "ghcr.io/wyrd-company/devcontainers/openbao-agent:2": {
+        "version": "2.7.1"
+      },
       "trowel": {}
     }
   }
