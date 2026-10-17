@@ -20,7 +20,7 @@ jobs:
     # Pin a repo.wyrd.foo commit whose config/products.json allows trowel.
     # The non-SHA sentinel deliberately blocks every release until it is replaced.
     env:
-      REPO_WYRD_FOO_PUBLISHER_COMMIT: REPLACE_WITH_REPO_WYRD_FOO_COMMIT_THAT_ALLOWS_TROWEL
+      REPO_WYRD_FOO_PUBLISHER_COMMIT: 8116eaa4bb3730530b4cef5b6f1cb9bab24c81e9
     steps:
       - name: Check out release commit
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
