@@ -54,7 +54,8 @@ again on every reload, then uses the values like inline secrets. Each secret
 path is read once per load even when several fields come from it. A missing
 secret, a missing field, a field that is not a string, or a denied read stops
 startup, or fails the reload, with the location of the reference. Send
-`SIGHUP` to pick up a rotated secret. See
+`SIGHUP` to pick up a rotated secret. A reload whose `nats.creds_file` or
+`nats.creds_vault` contents changed opens a new NATS connection with them. See
 [Reload](/docs/trowel/operations#reload).
 
 `-validate` checks references and the `vault` section without contacting the

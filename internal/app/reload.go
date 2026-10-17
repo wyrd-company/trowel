@@ -162,14 +162,19 @@ func (a *App) reload(ctx context.Context, raw []byte) error {
 // apply builds and starts a generation for cfg, then switches webhooks to
 // it and retires the previous one. Until the switch nothing the current
 // generation uses is touched, so any failure leaves it running. The NATS
-// connection is reused when its settings are unchanged.
+// connection is reused when its settings and creds_file contents are
+// unchanged.
 func (a *App) apply(ctx context.Context, cfg *config.Config) error {
 	old := a.gen.Load()
 	if !reflect.DeepEqual(cfg.Server, old.cfg.Server) {
 		return errServerChanged
 	}
 	conn := old.conn
-	if !reflect.DeepEqual(cfg.NATS, conn.cfg) {
+	same, err := conn.serves(cfg.NATS)
+	if err != nil {
+		return err
+	}
+	if !same {
 		c, err := connect(cfg.NATS, a.log)
 		if err != nil {
 			return err

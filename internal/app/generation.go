@@ -2,9 +2,12 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -23,8 +26,11 @@ import (
 // share it, and it is drained when the last of them releases it.
 type connection struct {
 	cfg config.NATS
-	nc  *nats.Conn
-	js  jetstream.JetStream
+	// credsSum fingerprints the creds_file contents the connection
+	// authenticated with, so a rotated file at the same path reconnects.
+	credsSum [sha256.Size]byte
+	nc       *nats.Conn
+	js       jetstream.JetStream
 
 	mu   sync.Mutex
 	refs int
@@ -49,11 +55,41 @@ func (c *connection) release() {
 }
 
 func connect(cfg config.NATS, log *slog.Logger) (*connection, error) {
+	sum, err := credsFileSum(cfg)
+	if err != nil {
+		return nil, err
+	}
 	nc, js, err := natsconn.Connect(cfg, log)
 	if err != nil {
 		return nil, err
 	}
-	return &connection{cfg: cfg, nc: nc, js: js}, nil
+	return &connection{cfg: cfg, credsSum: sum, nc: nc, js: js}, nil
+}
+
+// credsFileSum fingerprints the contents of cfg.CredsFile, or returns the
+// zero sum when none is set.
+func credsFileSum(cfg config.NATS) ([sha256.Size]byte, error) {
+	if cfg.CredsFile == "" {
+		return [sha256.Size]byte{}, nil
+	}
+	b, err := os.ReadFile(cfg.CredsFile)
+	if err != nil {
+		return [sha256.Size]byte{}, fmt.Errorf("nats creds_file: %w", err)
+	}
+	return sha256.Sum256(b), nil
+}
+
+// serves reports whether c was opened with the settings and credentials
+// cfg describes.
+func (c *connection) serves(cfg config.NATS) (bool, error) {
+	if !reflect.DeepEqual(cfg, c.cfg) {
+		return false, nil
+	}
+	sum, err := credsFileSum(cfg)
+	if err != nil {
+		return false, err
+	}
+	return sum == c.credsSum, nil
 }
 
 // generation is everything built from one configuration: the webhook
