@@ -21,6 +21,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/wyrd-company/trowel/internal/config"
+	"github.com/wyrd-company/trowel/internal/vault"
 )
 
 // logRecorder keeps every log message so tests can wait for reload
@@ -125,6 +126,9 @@ func startReloadEnvAt(t *testing.T, place func(e *reloadEnv) string) *reloadEnv 
 	}
 	cfg, err := config.Parse(raw)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Resolve(context.Background(), cfg, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 	e.app, err = New(cfg, slog.New(e.logs), WithReload(e.path, raw))
