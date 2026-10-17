@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -175,7 +176,9 @@ func (d *CommandDestination) Deliver(ctx context.Context, m *message.Message) er
 
 // env is the process environment, the configured variables, the subject,
 // the prefixed headers, and the trace context of ctx as TRACEPARENT,
-// TRACESTATE, and BAGGAGE.
+// TRACESTATE, and BAGGAGE. Those three come only from ctx: a value
+// inherited or configured for them is dropped, so it cannot sit beside a
+// trace context it does not belong to.
 func (d *CommandDestination) env(ctx context.Context, m *message.Message) []string {
 	env := os.Environ()
 	for k, v := range d.cfg.Env {
@@ -185,8 +188,17 @@ func (d *CommandDestination) env(ctx context.Context, m *message.Message) []stri
 	for k, vals := range message.CopyHeaders(m.Headers) {
 		env = append(env, d.cfg.EnvPrefix+envName(k)+"="+strings.Join(vals, ", "))
 	}
+	prop := otel.GetTextMapPropagator()
+	owned := map[string]bool{}
+	for _, f := range prop.Fields() {
+		owned[envName(f)] = true
+	}
+	env = slices.DeleteFunc(env, func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return owned[name]
+	})
 	carrier := propagation.MapCarrier{}
-	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	prop.Inject(ctx, carrier)
 	for k, v := range carrier {
 		env = append(env, envName(k)+"="+v)
 	}

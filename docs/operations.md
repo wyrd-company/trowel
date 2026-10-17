@@ -133,7 +133,8 @@ Trowel writes the trace context into the `traceparent` and `baggage`
 headers of each message it publishes, so other JetStream consumers can join
 the trace. HTTP destinations receive it in the same headers. Command
 destinations receive it in the `TRACEPARENT`, `TRACESTATE`, and `BAGGAGE`
-environment variables.
+environment variables, which replace any value Trowel inherited or the
+destination's `env` sets for them.
 
 ### Metrics
 

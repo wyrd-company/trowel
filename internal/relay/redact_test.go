@@ -9,11 +9,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -155,4 +158,44 @@ func TestHTTPDestinationRedactsURLWhenUnreachable(t *testing.T) {
 		t.Errorf("error carries %s: %v", p, err)
 	}
 	assertSpansRedacted(t, spans)
+}
+
+func TestCommandEnvDropsInheritedTraceContext(t *testing.T) {
+	prev := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	t.Cleanup(func() { otel.SetTextMapPropagator(prev) })
+	t.Setenv("TRACEPARENT", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+	t.Setenv("TRACESTATE", "vendor=outside")
+	t.Setenv("BAGGAGE", "secret=outside")
+	out := filepath.Join(t.TempDir(), "env")
+	d, err := NewDestination(config.Destination{Name: "script", Command: &config.Command{
+		Argv: []string{"sh", "-c", "env > " + out}, Timeout: 5 * time.Second, EnvPrefix: "RELAY_HEADER_",
+	}}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, span := sdktrace.NewTracerProvider().Tracer("t").Start(context.Background(), "process")
+	defer span.End()
+	if err := d.Deliver(ctx, &message.Message{Subject: "s", Headers: http.Header{}, Payload: []byte("x")}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok {
+			env[k] = v
+		}
+	}
+	if v, ok := env["TRACESTATE"]; ok {
+		t.Errorf("TRACESTATE inherited: %q", v)
+	}
+	if v, ok := env["BAGGAGE"]; ok {
+		t.Errorf("BAGGAGE inherited: %q", v)
+	}
+	if !strings.Contains(env["TRACEPARENT"], span.SpanContext().TraceID().String()) {
+		t.Errorf("TRACEPARENT %q is not the span's", env["TRACEPARENT"])
+	}
 }
