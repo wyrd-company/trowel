@@ -217,3 +217,18 @@ func TestLogHandlerWithoutLogsExportsNothing(t *testing.T) {
 		t.Errorf("handler %T, want only the stderr handler", h)
 	}
 }
+
+func TestRedactURL(t *testing.T) {
+	cases := map[string]string{
+		"https://hooks.example.test/services/T0/B0/abc": "https://hooks.example.test/REDACTED",
+		"https://u:p@api.example.test:8443/?sig=x&b=y":  "https://REDACTED:REDACTED@api.example.test:8443/?b=REDACTED&sig=REDACTED",
+		"http://api.example.test":                       "http://api.example.test",
+		"http://api.example.test/#frag":                 "http://api.example.test/",
+		"::not a url":                                   "REDACTED",
+	}
+	for raw, want := range cases {
+		if got := RedactURL(raw); got != want {
+			t.Errorf("RedactURL(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}

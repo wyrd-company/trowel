@@ -5,10 +5,12 @@ package relay
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	"github.com/wyrd-company/trowel/internal/config"
 	"github.com/wyrd-company/trowel/internal/message"
 	"github.com/wyrd-company/trowel/internal/signing"
+	"github.com/wyrd-company/trowel/internal/telemetry"
 )
 
 // Destination delivers one message. A returned error triggers a retry.
@@ -45,6 +48,9 @@ type HTTPDestination struct {
 	client *http.Client
 	signer signing.Signer
 	now    func() time.Time
+	// safeURL names the destination in errors, which reach logs,
+	// dead-letter headers, and spans, without the URL's credentials.
+	safeURL string
 }
 
 func newHTTPDestination(cfg *config.HTTP) (*HTTPDestination, error) {
@@ -53,10 +59,12 @@ func newHTTPDestination(cfg *config.HTTP) (*HTTPDestination, error) {
 		return nil, err
 	}
 	return &HTTPDestination{
-		cfg:    *cfg,
-		client: &http.Client{Timeout: cfg.Timeout, Transport: otelhttp.NewTransport(http.DefaultTransport)},
-		signer: s,
-		now:    time.Now,
+		cfg: *cfg,
+		client: &http.Client{Timeout: cfg.Timeout, Transport: otelhttp.NewTransport(http.DefaultTransport,
+			otelhttp.WithTracerProvider(telemetry.RedactingTracerProvider()))},
+		signer:  s,
+		now:     time.Now,
+		safeURL: telemetry.RedactURL(cfg.URL),
 	}, nil
 }
 
@@ -65,7 +73,7 @@ func newHTTPDestination(cfg *config.HTTP) (*HTTPDestination, error) {
 func (d *HTTPDestination) Deliver(ctx context.Context, m *message.Message) error {
 	req, err := http.NewRequestWithContext(ctx, d.cfg.Method, d.cfg.URL, bytes.NewReader(m.Payload))
 	if err != nil {
-		return err
+		return d.redact(err)
 	}
 	for k, vals := range message.CopyHeaders(m.Headers) {
 		req.Header[k] = append([]string(nil), vals...)
@@ -79,14 +87,24 @@ func (d *HTTPDestination) Deliver(ctx context.Context, m *message.Message) error
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		return d.redact(err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("http %s %s: status %d", d.cfg.Method, d.cfg.URL, resp.StatusCode)
+		return fmt.Errorf("http %s %s: status %d", d.cfg.Method, d.safeURL, resp.StatusCode)
 	}
 	return nil
+}
+
+// redact names the destination by its safe URL in an error that carries
+// the URL.
+func (d *HTTPDestination) redact(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return &url.Error{Op: ue.Op, URL: d.safeURL, Err: ue.Err}
+	}
+	return err
 }
 
 // CommandDestination runs a child process with the payload on stdin and
