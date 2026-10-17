@@ -339,10 +339,32 @@ func TestReloadClosesNewConnectionWhenStartFails(t *testing.T) {
 // open across a reload that replaces the connection, then finishes it.
 func TestReloadKeepsOldConnectionForRequestsInProgress(t *testing.T) {
 	e := startReloadEnv(t, func(e *reloadEnv) string { return e.base(hookA) })
+	finish := e.holdRequest("/hooks/a")
+	e.write(strings.Replace(e.base(hookA), "nats:\n", "nats:\n  name: trowel-next\n", 1))
+	e.waitLog(reloaded, 1)
+	time.Sleep(500 * time.Millisecond)
+	if len(e.conns()["trowel"]) != 1 {
+		t.Error("old connection closed while a request was using it")
+	}
+	if code := finish(); code != http.StatusAccepted {
+		t.Errorf("request in progress finished with status %d", code)
+	}
+	waitFor(t, func() bool { return len(e.conns()["trowel"]) == 0 })
+}
+
+// holdRequest starts a webhook request whose body stays open until the
+// returned finish is called, and waits until the current generation is
+// serving it. finish returns the response status.
+func (e *reloadEnv) holdRequest(path string) (finish func() int) {
+	e.t.Helper()
 	body, feed := io.Pipe()
 	status := make(chan int, 1)
+	g := e.app.gen.Load()
+	g.mu.Lock()
+	before := g.active
+	g.mu.Unlock()
 	go func() {
-		req, _ := http.NewRequest(http.MethodPost, "http://"+e.listen+"/hooks/a", body)
+		req, _ := http.NewRequest(http.MethodPost, "http://"+e.listen+path, body)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			status <- 0
@@ -351,19 +373,94 @@ func TestReloadKeepsOldConnectionForRequestsInProgress(t *testing.T) {
 		resp.Body.Close()
 		status <- resp.StatusCode
 	}()
-	old := e.app.gen.Load()
-	waitFor(t, func() bool { old.mu.Lock(); defer old.mu.Unlock(); return old.active == 1 })
+	waitFor(e.t, func() bool { g.mu.Lock(); defer g.mu.Unlock(); return g.active == before+1 })
+	return func() int {
+		_, _ = feed.Write([]byte(`{}`))
+		feed.Close()
+		return <-status
+	}
+}
 
-	e.write(strings.Replace(e.base(hookA), "nats:\n", "nats:\n  name: trowel-next\n", 1))
+// countingDest is an HTTP destination that counts requests.
+func countingDest(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var n atomic.Int32
+	dest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(dest.Close)
+	return dest, &n
+}
+
+func relayTo(name, subject, url string) string {
+	return fmt.Sprintf("  - name: %s\n    subject: %s\n    destinations:\n      - name: api\n        http:\n          url: %q\n", name, subject, url)
+}
+
+// TestReloadDeliversNothingWhenStartFails queues messages for a new relay
+// whose generation then fails to start on a later relay, and expects the
+// new relay to deliver none of them.
+func TestReloadDeliversNothingWhenStartFails(t *testing.T) {
+	dest, delivered := countingDest(t)
+	e := startReloadEnv(t, func(e *reloadEnv) string { return e.base(hookA) })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for i := range 20 {
+		if _, err := e.js.Publish(ctx, "events.backlog", []byte(fmt.Sprintf(`{"n":%d}`, i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.write(e.base(hookA) + "subjects:\n" + relayTo("backlog", "events.backlog", dest.URL) +
+		"  - name: missing\n    stream: NOPE\n    subject: other.x\n    destinations:\n      - name: d\n        command:\n          argv: [\"true\"]\n")
+	e.waitLog(reloadFailed, 1)
+	time.Sleep(500 * time.Millisecond)
+	if n := delivered.Load(); n != 0 {
+		t.Errorf("rejected generation delivered %d messages", n)
+	}
+}
+
+// TestReloadStopsRemovedRelayWhileRequestsFinish removes a relay while a
+// webhook request on the old generation is still open, and expects the
+// removed relay to deliver nothing published afterwards.
+func TestReloadStopsRemovedRelayWhileRequestsFinish(t *testing.T) {
+	dest, delivered := countingDest(t)
+	relays := "subjects:\n" + relayTo("removed", "events.removed", dest.URL)
+	e := startReloadEnv(t, func(e *reloadEnv) string { return e.base(hookA) + relays })
+	finish := e.holdRequest("/hooks/a")
+	e.write(e.base(hookA))
 	e.waitLog(reloaded, 1)
 	time.Sleep(500 * time.Millisecond)
-	if len(e.conns()["trowel"]) != 1 {
-		t.Error("old connection closed while a request was using it")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := e.js.Publish(ctx, "events.removed", []byte(`{}`)); err != nil {
+		t.Fatal(err)
 	}
-	_, _ = feed.Write([]byte(`{}`))
-	feed.Close()
-	if code := <-status; code != http.StatusAccepted {
+	time.Sleep(time.Second)
+	if n := delivered.Load(); n != 0 {
+		t.Errorf("removed relay delivered %d messages", n)
+	}
+	if code := finish(); code != http.StatusAccepted {
 		t.Errorf("request in progress finished with status %d", code)
+	}
+}
+
+// TestReloadKeepsSharedConnectionForOldestRequest holds a request on the
+// first generation across a reload that shares its connection and a second
+// reload that replaces it, and expects the request to publish.
+func TestReloadKeepsSharedConnectionForOldestRequest(t *testing.T) {
+	e := startReloadEnv(t, func(e *reloadEnv) string { return e.base(hookA) })
+	finish := e.holdRequest("/hooks/a")
+	e.write(e.base(hookA + hookB))
+	e.waitLog(reloaded, 1)
+	e.write(strings.Replace(e.base(hookA), "nats:\n", "nats:\n  name: trowel-next\n", 1))
+	e.waitLog(reloaded, 2)
+	time.Sleep(500 * time.Millisecond)
+	if len(e.conns()["trowel"]) != 1 {
+		t.Error("shared connection closed while the oldest generation was using it")
+	}
+	if code := finish(); code != http.StatusAccepted {
+		t.Errorf("oldest request finished with status %d", code)
 	}
 	waitFor(t, func() bool { return len(e.conns()["trowel"]) == 0 })
 }

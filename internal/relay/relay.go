@@ -39,6 +39,8 @@ type Worker struct {
 	metrics   metrics
 
 	mu      sync.Mutex
+	cons    jetstream.Consumer
+	stream  string
 	consume jetstream.ConsumeContext
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -70,8 +72,9 @@ func (w *Worker) DurableName() string {
 	return "relay-" + w.relay.Name + "-" + w.dest.Name
 }
 
-// Start creates or updates the consumer and begins delivering.
-func (w *Worker) Start(ctx context.Context) error {
+// Prepare creates or updates the durable consumer without taking any
+// messages from it.
+func (w *Worker) Prepare(ctx context.Context) error {
 	streamName := w.relay.Stream
 	if streamName == "" {
 		name, err := w.js.StreamNameBySubject(ctx, w.relay.Subject)
@@ -88,15 +91,33 @@ func (w *Worker) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("relay %s: consumer %s: %w", w.relay.Name, w.DurableName(), err)
 	}
+	w.mu.Lock()
+	w.cons, w.stream = cons, streamName
+	w.mu.Unlock()
+	return nil
+}
+
+// Consume begins delivering from the consumer Prepare set up.
+func (w *Worker) Consume() error {
+	w.mu.Lock()
+	cons, streamName := w.cons, w.stream
+	w.mu.Unlock()
+	if cons == nil {
+		return fmt.Errorf("relay %s: consumer %s is not prepared", w.relay.Name, w.DurableName())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	w.mu.Lock()
+	w.ctx, w.cancel = ctx, cancel
+	w.mu.Unlock()
 	cc, err := cons.Consume(w.handle, jetstream.ConsumeErrHandler(func(_ jetstream.ConsumeContext, err error) {
 		w.log.Warn("consume error", "error", err)
 	}))
 	if err != nil {
+		cancel()
 		return fmt.Errorf("relay %s: consume: %w", w.relay.Name, err)
 	}
 	w.mu.Lock()
 	w.consume = cc
-	w.ctx, w.cancel = context.WithCancel(context.Background())
 	w.mu.Unlock()
 	w.log.Info("consuming", "stream", streamName, "consumer", w.DurableName(), "subject", w.relay.Subject)
 	return nil

@@ -20,11 +20,32 @@ import (
 )
 
 // connection is one NATS connection. Generations with equal NATS settings
-// share it.
+// share it, and it is drained when the last of them releases it.
 type connection struct {
 	cfg config.NATS
 	nc  *nats.Conn
 	js  jetstream.JetStream
+
+	mu   sync.Mutex
+	refs int
+}
+
+// acquire records one more generation using the connection.
+func (c *connection) acquire() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.refs++
+}
+
+// release records that a generation is done with the connection and
+// drains it once no generation uses it.
+func (c *connection) release() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.refs--
+	if c.refs == 0 {
+		_ = c.nc.Drain()
+	}
 }
 
 func connect(cfg config.NATS, log *slog.Logger) (*connection, error) {
@@ -92,11 +113,18 @@ func spanName(_ string, r *http.Request) string {
 	return r.Method + " " + r.Pattern
 }
 
-// start creates or updates every consumer and begins delivering. On
-// failure it stops the workers it started.
+// start creates or updates every consumer, and only when all of them
+// succeed begins delivering, so a generation that fails to start never
+// delivers a message. Consuming fails only when the connection does, which
+// stops every worker on it. On failure it stops the workers it started.
 func (g *generation) start(ctx context.Context) error {
+	for _, w := range g.workers {
+		if err := w.Prepare(ctx); err != nil {
+			return fmt.Errorf("start: %w", err)
+		}
+	}
 	for i, w := range g.workers {
-		if err := w.Start(ctx); err != nil {
+		if err := w.Consume(); err != nil {
 			for _, started := range g.workers[:i] {
 				started.Stop()
 			}
@@ -134,10 +162,16 @@ func (g *generation) leave() {
 	}
 }
 
-// retire lets a replaced generation finish its work: it waits for requests
-// in progress, drains every worker, and, when closeConn is set, drains the
-// connection. Ending ctx cuts the waits short.
-func (g *generation) retire(ctx context.Context, closeConn bool) {
+// retire lets a replaced generation finish its work and releases its
+// connection. Its workers stop taking messages at once and finish the
+// deliveries they hold, while requests in progress on its routes finish.
+// Ending ctx cuts the waits short.
+func (g *generation) retire(ctx context.Context) {
+	var drained sync.WaitGroup
+	for _, w := range g.workers {
+		drained.Go(func() { w.Drain(ctx) })
+	}
+
 	g.mu.Lock()
 	g.retired = true
 	if g.active == 0 {
@@ -148,13 +182,6 @@ func (g *generation) retire(ctx context.Context, closeConn bool) {
 	case <-g.idle:
 	case <-ctx.Done():
 	}
-
-	var wg sync.WaitGroup
-	for _, w := range g.workers {
-		wg.Go(func() { w.Drain(ctx) })
-	}
-	wg.Wait()
-	if closeConn {
-		_ = g.conn.nc.Drain()
-	}
+	drained.Wait()
+	g.conn.release()
 }

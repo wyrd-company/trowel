@@ -77,6 +77,7 @@ func New(cfg *config.Config, log *slog.Logger, opts ...Option) (*App, error) {
 	for _, o := range opts {
 		o(a)
 	}
+	conn.acquire()
 	a.gen.Store(g)
 	srv.SetRoutes(http.HandlerFunc(a.serve))
 	return a, nil
@@ -95,11 +96,11 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 // Run starts consumers and the HTTP server and blocks until a signal or
-// failure. It always drains and closes the NATS connection.
+// failure. It always drains and closes every NATS connection.
 func (a *App) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	defer func() { _ = a.gen.Load().conn.nc.Drain() }()
+	defer func() { a.gen.Load().conn.release() }()
 	defer a.cancelRetire()
 
 	if err := a.gen.Load().start(ctx); err != nil {

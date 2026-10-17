@@ -157,7 +157,8 @@ func (a *App) apply(ctx context.Context, cfg *config.Config) error {
 		}
 		return err
 	}
+	conn.acquire()
 	a.gen.Store(g)
-	a.retiring.Go(func() { old.retire(a.retireCtx, conn != old.conn) })
+	a.retiring.Go(func() { old.retire(a.retireCtx) })
 	return nil
 }
