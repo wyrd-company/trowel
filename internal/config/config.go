@@ -204,15 +204,6 @@ const (
 	DefaultAppRoleMount      = "approle"
 )
 
-// Load reads, expands, parses, and validates a configuration file.
-func Load(path string) (*Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return Parse(raw)
-}
-
 // Parse decodes YAML, expands environment references in values, applies
 // defaults, and validates.
 func Parse(raw []byte) (*Config, error) {
