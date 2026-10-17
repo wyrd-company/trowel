@@ -122,6 +122,7 @@ func TestDisplayURLNeverShowsUserinfo(t *testing.T) {
 		"shown creds after unshown scheme":    {"${TEST_PREFIX}${TEST_CREDS}@example.test/path", "          show: [TEST_CREDS]\n"},
 		"literal creds after unshown scheme":  {"${TEST_PREFIX}generic-user:s3cret-pass@example.test/path", ""},
 		"literal creds after unshown slashes": {"https:${TEST_SLASHES}generic-user:s3cret-pass@example.test/path", ""},
+		"unparsable expanded url":             {"${TEST_PREFIX}generic-user:s3cret-pass@example.test/%zz", ""},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
