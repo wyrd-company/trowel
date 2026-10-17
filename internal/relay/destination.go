@@ -53,7 +53,8 @@ type HTTPDestination struct {
 	signer signing.Signer
 	now    func() time.Time
 	// safeURL names the destination in errors, which reach logs,
-	// dead-letter headers, and spans, without the URL's credentials.
+	// dead-letter headers, and spans: the display URL when the config has
+	// one, otherwise the redacted URL.
 	safeURL string
 }
 
@@ -62,13 +63,29 @@ func newHTTPDestination(cfg *config.HTTP) (*HTTPDestination, error) {
 	if err != nil {
 		return nil, err
 	}
+	safe := cfg.DisplayURL
+	if safe == "" {
+		safe = telemetry.RedactURL(cfg.URL)
+	}
+	// The client instrumentation records url.full without userinfo.
+	configured := cfg.URL
+	if u, err := url.Parse(cfg.URL); err == nil {
+		u.User = nil
+		configured = u.String()
+	}
+	display := func(u string) string {
+		if u == configured {
+			return safe
+		}
+		return telemetry.RedactURL(u)
+	}
 	return &HTTPDestination{
 		cfg: *cfg,
 		client: &http.Client{Timeout: cfg.Timeout, Transport: otelhttp.NewTransport(http.DefaultTransport,
-			otelhttp.WithTracerProvider(telemetry.RedactingTracerProvider()))},
+			otelhttp.WithTracerProvider(telemetry.RedactingTracerProvider(display)))},
 		signer:  s,
 		now:     time.Now,
-		safeURL: telemetry.RedactURL(cfg.URL),
+		safeURL: safe,
 	}, nil
 }
 

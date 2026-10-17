@@ -82,10 +82,9 @@ with `nats consumer rm`.
 ## Logs
 
 Logs are JSON lines on stderr. Delivery failures log the subject, the
-destination, the attempt, and the reason. An HTTP destination's URL in a
-failure reason, a `Relay-Error` header, or a span keeps only its scheme,
-host, and port; the userinfo, the path, and each query value read
-`REDACTED`, since any of them can carry a credential. Records about a
+destination, the attempt, and the reason. An HTTP destination appears in a
+failure reason, a `Relay-Error` header, or a span by its display URL. See
+[`http` destination](/docs/trowel/configuration#http-destination). Records about a
 traced message also carry `trace_id` and `span_id`. A command destination's
 stdout is logged on success, and its stderr is part of the failure reason.
 

@@ -173,6 +173,16 @@ type HTTP struct {
 	Headers map[string]string `yaml:"headers"`
 	Timeout time.Duration     `yaml:"timeout"`
 	Sign    *Sign             `yaml:"sign"`
+	// Show lists ${NAME} references in URL whose values may appear where
+	// the destination is named. Others stay written as ${NAME}.
+	Show []string `yaml:"show"`
+	// Template is URL as written, before ${NAME} expansion. It is never
+	// read from YAML.
+	Template string `yaml:"-"`
+	// DisplayURL names the destination in logs, dead-letter headers, and
+	// spans. It is empty when URL has no references, and then the URL is
+	// redacted in full.
+	DisplayURL string `yaml:"-"`
 }
 
 // Command delivers the message body on stdin of a child process.
@@ -214,11 +224,17 @@ func Parse(raw []byte) (*Config, error) {
 	}
 	var cfg Config
 	if doc.Kind != 0 {
+		templates := urlTemplates(&doc)
 		if err := expandNode(&doc); err != nil {
 			return nil, err
 		}
 		if err := decodeStrict(&doc, &cfg); err != nil {
 			return nil, fmt.Errorf("parse config: %w", err)
+		}
+		for k, t := range templates {
+			if h := cfg.Subjects[k[0]].Destinations[k[1]].HTTP; h != nil {
+				h.Template = t
+			}
 		}
 	}
 	cfg.applyDefaults()
@@ -306,6 +322,7 @@ func (c *Config) applyDefaults() {
 				if d.HTTP.Timeout == 0 {
 					d.HTTP.Timeout = DefaultHTTPTimeout
 				}
+				d.HTTP.DisplayURL = displayURL(d.HTTP.Template, d.HTTP.Show)
 				if d.HTTP.Sign != nil {
 					applyHMACDefaults(d.HTTP.Sign.HMAC)
 					applyEd25519Defaults(d.HTTP.Sign.Ed25519)
@@ -443,6 +460,9 @@ func (c *Config) Validate() error {
 			if d.HTTP != nil {
 				if d.HTTP.URL == "" {
 					return fmt.Errorf("%s.http: url is required", dw)
+				}
+				if err := validateShow(dw, d.HTTP.Template, d.HTTP.Show); err != nil {
+					return err
 				}
 				if d.HTTP.Sign != nil {
 					if err := validateOneOf(dw+".http.sign", d.HTTP.Sign.HMAC != nil, d.HTTP.Sign.Ed25519 != nil, d.HTTP.Sign.Static != nil); err != nil {

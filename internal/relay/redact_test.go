@@ -199,3 +199,38 @@ func TestCommandEnvDropsInheritedTraceContext(t *testing.T) {
 		t.Errorf("TRACEPARENT %q is not the span's", env["TRACEPARENT"])
 	}
 }
+
+func TestHTTPDestinationNamesItselfByDisplayURL(t *testing.T) {
+	spans := recordSpans(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	t.Setenv("TEST_BASE", srv.URL)
+	t.Setenv("TEST_HOOK", "s3cret-path")
+	cfg, err := config.Parse([]byte("subjects:\n  - name: s\n    subject: s\n    destinations:\n      - name: api\n        http:\n          url: ${TEST_BASE}/hook/${TEST_HOOK}\n          show: [TEST_BASE]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := NewDestination(cfg.Subjects[0].Destinations[0], slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := srv.URL + "/hook/${TEST_HOOK}"
+	err = d.Deliver(context.Background(), &message.Message{Subject: "s", Headers: http.Header{}, Payload: []byte("x")})
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("error %v does not name %s", err, want)
+	}
+	var full string
+	for _, s := range spans.Ended() {
+		for _, kv := range s.Attributes() {
+			if kv.Key == "url.full" {
+				full = kv.Value.AsString()
+			}
+		}
+	}
+	if full != want {
+		t.Errorf("url.full %q, want %q", full, want)
+	}
+	assertSpansRedacted(t, spans)
+}

@@ -100,6 +100,20 @@ If no `dlq_subject` is set the message is terminated and logged.
 | `headers` | none. Static headers, set after relayed headers. |
 | `timeout` | `30s` |
 | `sign` | none. Exactly one of `hmac`, `ed25519`, `static`. |
+| `show` | none. `${NAME}` references in `url` whose values may appear where the destination is named. |
+
+Logs, `Relay-Error` headers, and spans name the destination by its URL as
+written in the configuration. Each `${NAME}` reference stays as written
+unless `show` lists it, and any userinfo reads `REDACTED`. A URL written
+without references keeps only its scheme, host, and port there, because
+Trowel cannot tell which part is secret.
+
+```yaml
+http:
+  url: https://${HOOK_HOST}/services/${HOOK_TOKEN}
+  show: [HOOK_HOST]
+  # named as https://hooks.example.test/services/${HOOK_TOKEN}
+```
 
 The request carries the message payload as the body, the relayed message headers, the static headers, `X-Relay-Subject`, and the signature. Any status outside `2xx` is a failed delivery.
 

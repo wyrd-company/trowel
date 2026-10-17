@@ -40,37 +40,44 @@ func RedactURL(raw string) string {
 }
 
 // RedactingTracerProvider returns a TracerProvider over the global one
-// whose spans record url.full with RedactURL when it is set after the span
-// starts, as HTTP client instrumentation does.
-func RedactingTracerProvider() trace.TracerProvider { return redactingProvider{} }
-
-type redactingProvider struct{ embedded.TracerProvider }
-
-func (redactingProvider) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
-	return redactingTracer{Tracer: otel.GetTracerProvider().Tracer(name, opts...)}
+// whose spans record url.full as display returns it, when url.full is set
+// after the span starts, as HTTP client instrumentation does.
+func RedactingTracerProvider(display func(url string) string) trace.TracerProvider {
+	return redactingProvider{display: display}
 }
 
-type redactingTracer struct{ trace.Tracer }
+type redactingProvider struct {
+	embedded.TracerProvider
+	display func(string) string
+}
+
+func (p redactingProvider) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
+	return redactingTracer{Tracer: otel.GetTracerProvider().Tracer(name, opts...), display: p.display}
+}
+
+type redactingTracer struct {
+	trace.Tracer
+	display func(string) string
+}
 
 func (t redactingTracer) Start(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	ctx, span := t.Tracer.Start(ctx, name, opts...)
-	span = redactingSpan{span}
+	span = redactingSpan{span, t.display}
 	return trace.ContextWithSpan(ctx, span), span
 }
 
-type redactingSpan struct{ trace.Span }
-
-func (s redactingSpan) SetAttributes(kv ...attribute.KeyValue) {
-	s.Span.SetAttributes(redactAttrs(kv)...)
+type redactingSpan struct {
+	trace.Span
+	display func(string) string
 }
 
-func redactAttrs(kv []attribute.KeyValue) []attribute.KeyValue {
+func (s redactingSpan) SetAttributes(kv ...attribute.KeyValue) {
 	out := make([]attribute.KeyValue, len(kv))
 	for i, a := range kv {
 		if a.Key == semconv.URLFullKey {
-			a = semconv.URLFull(RedactURL(a.Value.AsString()))
+			a = semconv.URLFull(s.display(a.Value.AsString()))
 		}
 		out[i] = a
 	}
-	return out
+	s.Span.SetAttributes(out...)
 }
