@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -41,12 +40,8 @@ func installTestTelemetry(t *testing.T) (*tracetest.SpanRecorder, *sdkmetric.Man
 	return spans, reader
 }
 
-func traceIDOf(tp string) string {
-	parts := strings.Split(tp, "-")
-	if len(parts) != 4 {
-		return ""
-	}
-	return parts[1]
+func traceparentOf(sc trace.SpanContext) string {
+	return fmt.Sprintf("00-%s-%s-%s", sc.TraceID(), sc.SpanID(), sc.TraceFlags())
 }
 
 // sum returns the value of an Int64 counter's data point whose attributes
@@ -186,17 +181,37 @@ func TestTelemetryFollowsAMessageEndToEnd(t *testing.T) {
 		t.Errorf("dead-letter spans %v", dl)
 	}
 
+	if n := len(byName["GET /readyz"]) + len(byName["GET"]); n != 0 {
+		t.Errorf("%d health check spans recorded", n)
+	}
+
+	// Each hop carries the span that made it, not a copy of an earlier one.
+	processFor := func(dest string) sdktrace.ReadOnlySpan {
+		for _, s := range byName["process events.a"] {
+			for _, kv := range s.Attributes() {
+				if kv.Key == "trowel.destination.name" && kv.Value.AsString() == dest {
+					return s
+				}
+			}
+		}
+		t.Fatalf("no process span for %s", dest)
+		return nil
+	}
+	client := byName["HTTP POST"]
+	if len(client) != 1 || client[0].Parent().SpanID() != processFor("api").SpanContext().SpanID() {
+		t.Fatalf("HTTP client spans %v", client)
+	}
 	mu.Lock()
 	got := destTraceparent
 	mu.Unlock()
-	if traceIDOf(got) != traceID {
-		t.Errorf("HTTP destination traceparent %q, want trace %s", got, traceID)
+	if want := client[0].SpanContext(); got != traceparentOf(want) {
+		t.Errorf("HTTP destination traceparent %q, want %q", got, traceparentOf(want))
 	}
-	if b, _ := os.ReadFile(envOut); traceIDOf(string(b)) != traceID {
-		t.Errorf("command TRACEPARENT %q, want trace %s", b, traceID)
+	if b, _ := os.ReadFile(envOut); string(b) != traceparentOf(processFor("script").SpanContext()) {
+		t.Errorf("command TRACEPARENT %q, want the script's process span", b)
 	}
-	if tp := msg.Headers().Get("Traceparent"); traceIDOf(tp) != traceID {
-		t.Errorf("dead letter traceparent %q, want trace %s", tp, traceID)
+	if tp := msg.Headers().Get("Traceparent"); tp != traceparentOf(byName["send events.dlq"][0].SpanContext()) {
+		t.Errorf("dead letter traceparent %q, want the dead-letter span", tp)
 	}
 
 	outcome := func(v string) attribute.KeyValue { return attribute.String("trowel.outcome", v) }
