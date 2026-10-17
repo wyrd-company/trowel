@@ -43,28 +43,26 @@ one webhook, `POST /hooks/example`, that publishes to `trowel.example`. A
 JetStream stream must cover that subject before publishes succeed. Trowel
 exits when NATS is unreachable, and s6 restarts it until NATS is up.
 
-Replace the starter configuration with a read-only bind mount:
+Replace the starter configuration by bind-mounting a directory that holds a
+`config.yml` over `/etc/trowel`:
 
 ```json
 {
   "mounts": [
-    "source=${localWorkspaceFolder}/.devcontainer/trowel.yml,target=/etc/trowel/config.yml,type=bind,readonly"
+    "source=${localWorkspaceFolder}/.devcontainer/trowel,target=/etc/trowel,type=bind,readonly"
   ]
 }
 ```
 
-Trowel reloads the file when it changes. Reload it on demand, for example
-after a secret rotates, with:
+Trowel reloads `config.yml` when it changes. Mount the directory rather than
+the file: an editor that saves by replacing the file leaves a single-file bind
+mount showing the old file until the container is recreated, and neither a
+reload nor a service restart sees the new one.
+
+Reload on demand, for example after a secret rotates, with:
 
 ```bash
 sudo /command/s6-svc -h /run/service/trowel
-```
-
-An editor that saves by replacing the file leaves a single-file bind mount
-showing the old file. Restart the service after such a save:
-
-```bash
-sudo /command/s6-svc -r /run/service/trowel
 ```
 
 ## Secret file
