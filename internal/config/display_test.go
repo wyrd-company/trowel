@@ -154,6 +154,11 @@ func TestDisplayURLRedactsSplitCredsAtALiteralAuthority(t *testing.T) {
 	if got := displayOf(t, "http://user:s3cret@${TEST_HOST}/path", ""); got != "" {
 		t.Errorf("display %q, want full redaction", got)
 	}
+	// A reference before :// can carry its own userinfo.
+	t.Setenv("TEST_LEAD", "http://generic-user:s3cret@other.example.test/?u=")
+	if got := displayOf(t, "${TEST_LEAD}://a@example.test/x", "          show: [TEST_LEAD]\n"); got != "" {
+		t.Errorf("display %q, want full redaction", got)
+	}
 }
 
 // TestTemplatesAcceptTaggedExpansions keeps expansion-dependent tagged
