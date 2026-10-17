@@ -14,9 +14,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/wyrd-company/trowel/internal/config"
 	"github.com/wyrd-company/trowel/internal/server"
+	"github.com/wyrd-company/trowel/internal/telemetry"
 	"github.com/wyrd-company/trowel/internal/vault"
 )
 
@@ -30,6 +35,7 @@ type App struct {
 	path     string
 	lastSum  [sha256.Size]byte
 	watching chan struct{}
+	reloads  metric.Int64Counter
 
 	// retiring tracks replaced generations still finishing their work.
 	// Ending retireCtx cuts that work short at shutdown.
@@ -63,6 +69,10 @@ func New(cfg *config.Config, log *slog.Logger, opts ...Option) (*App, error) {
 		return nil, err
 	}
 	a := &App{log: log, server: srv, watching: make(chan struct{})}
+	a.reloads, err = otel.Meter(telemetry.ScopeName).Int64Counter("trowel.config.reloads",
+		metric.WithUnit("{reload}"),
+		metric.WithDescription("Configuration reload attempts, by outcome: applied or failed."))
+	telemetry.Handle(err)
 	a.retireCtx, a.cancelRetire = context.WithCancel(context.Background())
 	for _, o := range opts {
 		o(a)
@@ -135,7 +145,22 @@ func Main(args []string) int {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
-	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel()}))
+	level := logLevel()
+	base := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	stderr := slog.New(base)
+	log := stderr
+	if !*validate {
+		tel, err := telemetry.Setup(context.Background(), Version)
+		if err != nil {
+			stderr.Error("set up telemetry", "error", err)
+			return 1
+		}
+		defer flushTelemetry(tel, stderr)
+		// Export errors go to stderr only, so a failing log exporter cannot
+		// feed its own errors back into the export.
+		otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) { stderr.Warn("telemetry export", "error", err) }))
+		log = slog.New(tel.LogHandler(base, level))
+	}
 
 	log.Info("trowel starting", "version", Version)
 
@@ -166,6 +191,18 @@ func Main(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// telemetryFlushTimeout bounds how long exit waits to export buffered
+// telemetry, so an unreachable collector cannot hold the process open.
+const telemetryFlushTimeout = 5 * time.Second
+
+func flushTelemetry(tel *telemetry.Telemetry, log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), telemetryFlushTimeout)
+	defer cancel()
+	if err := tel.Shutdown(ctx); err != nil {
+		log.Warn("flush telemetry", "error", err)
+	}
 }
 
 func envOr(key, def string) string {

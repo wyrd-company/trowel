@@ -19,6 +19,10 @@ process, one YAML file.
   Failed deliveries retry on the consumer's schedule and dead-letter to a
   subject when attempts run out.
 
+Trowel exports OpenTelemetry traces, metrics, and logs, and one trace follows
+each webhook through JetStream to every destination. See
+[Telemetry](/docs/trowel/operations#telemetry).
+
 Nothing is specific to one sender. GitHub webhooks are the first intended
 producer, and the example configuration shows them.
 

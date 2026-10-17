@@ -36,6 +36,7 @@ Flags and environment:
 | `-config`, `TROWEL_CONFIG` | Path to the YAML config | `config.yml` |
 | `-validate` | Load and validate the config, then exit | |
 | `TROWEL_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
+| `OTEL_*` | OpenTelemetry traces, metrics, and logs, such as `OTEL_EXPORTER_OTLP_ENDPOINT`. See [`docs/operations.md`](docs/operations.md#telemetry). | nothing exported |
 
 Trowel reloads the config when the file changes and on `SIGHUP`, and keeps the running config when the new one fails. See [`docs/operations.md`](docs/operations.md#reload).
 

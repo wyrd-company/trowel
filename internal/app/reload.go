@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/wyrd-company/trowel/internal/config"
 	"github.com/wyrd-company/trowel/internal/vault"
@@ -81,21 +83,22 @@ func (a *App) watch(ctx context.Context) {
 // directory do nothing. Any failure keeps the current configuration.
 func (a *App) reloadFile(ctx context.Context, force bool) {
 	raw, err := os.ReadFile(a.path)
+	if err == nil {
+		sum := sha256.Sum256(raw)
+		if !force && sum == a.lastSum {
+			return
+		}
+		a.lastSum = sum
+		err = a.reload(ctx, raw)
+	}
 	if err != nil {
-		a.log.Error("config reload failed; keeping current configuration", "path", a.path, "error", err)
+		a.reloads.Add(ctx, 1, metric.WithAttributes(attribute.String("trowel.outcome", "failed")))
+		a.log.ErrorContext(ctx, "config reload failed; keeping current configuration", "path", a.path, "error", err)
 		return
 	}
-	sum := sha256.Sum256(raw)
-	if !force && sum == a.lastSum {
-		return
-	}
-	a.lastSum = sum
-	if err := a.reload(ctx, raw); err != nil {
-		a.log.Error("config reload failed; keeping current configuration", "path", a.path, "error", err)
-		return
-	}
+	a.reloads.Add(ctx, 1, metric.WithAttributes(attribute.String("trowel.outcome", "applied")))
 	cfg := a.gen.Load().cfg
-	a.log.Info("config reloaded", "path", a.path, "webhooks", len(cfg.Webhooks), "subjects", len(cfg.Subjects))
+	a.log.InfoContext(ctx, "config reloaded", "path", a.path, "webhooks", len(cfg.Webhooks), "subjects", len(cfg.Subjects))
 }
 
 // reload parses raw, resolves its secrets, and applies it.

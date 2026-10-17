@@ -14,6 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+
 	"github.com/wyrd-company/trowel/internal/config"
 	"github.com/wyrd-company/trowel/internal/message"
 	"github.com/wyrd-company/trowel/internal/signing"
@@ -50,14 +54,14 @@ func newHTTPDestination(cfg *config.HTTP) (*HTTPDestination, error) {
 	}
 	return &HTTPDestination{
 		cfg:    *cfg,
-		client: &http.Client{Timeout: cfg.Timeout},
+		client: &http.Client{Timeout: cfg.Timeout, Transport: otelhttp.NewTransport(http.DefaultTransport)},
 		signer: s,
 		now:    time.Now,
 	}, nil
 }
 
-// Deliver sends the payload with relayed headers, static headers, and the
-// signature. Any non-2xx status is an error.
+// Deliver sends the payload with relayed headers, static headers, the
+// signature, and the trace context of ctx. Any non-2xx status is an error.
 func (d *HTTPDestination) Deliver(ctx context.Context, m *message.Message) error {
 	req, err := http.NewRequestWithContext(ctx, d.cfg.Method, d.cfg.URL, bytes.NewReader(m.Payload))
 	if err != nil {
@@ -106,7 +110,7 @@ func (d *CommandDestination) Deliver(ctx context.Context, m *message.Message) er
 	cmd := exec.CommandContext(ctx, d.cfg.Argv[0], d.cfg.Argv[1:]...)
 	cmd.Dir = d.cfg.Dir
 	cmd.Stdin = bytes.NewReader(m.Payload)
-	cmd.Env = d.env(m)
+	cmd.Env = d.env(ctx, m)
 	var stdout, stderr limitedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -125,7 +129,10 @@ func (d *CommandDestination) Deliver(ctx context.Context, m *message.Message) er
 	return nil
 }
 
-func (d *CommandDestination) env(m *message.Message) []string {
+// env is the process environment, the configured variables, the subject,
+// the prefixed headers, and the trace context of ctx as TRACEPARENT,
+// TRACESTATE, and BAGGAGE.
+func (d *CommandDestination) env(ctx context.Context, m *message.Message) []string {
 	env := os.Environ()
 	for k, v := range d.cfg.Env {
 		env = append(env, k+"="+v)
@@ -133,6 +140,11 @@ func (d *CommandDestination) env(m *message.Message) []string {
 	env = append(env, "RELAY_SUBJECT="+m.Subject)
 	for k, vals := range message.CopyHeaders(m.Headers) {
 		env = append(env, d.cfg.EnvPrefix+envName(k)+"="+strings.Join(vals, ", "))
+	}
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	for k, v := range carrier {
+		env = append(env, envName(k)+"="+v)
 	}
 	return env
 }

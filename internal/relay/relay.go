@@ -13,9 +13,16 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/wyrd-company/trowel/internal/config"
 	"github.com/wyrd-company/trowel/internal/message"
+	"github.com/wyrd-company/trowel/internal/telemetry"
 	"github.com/wyrd-company/trowel/internal/transform"
 )
 
@@ -28,6 +35,8 @@ type Worker struct {
 	deliver   Destination
 	js        jetstream.JetStream
 	log       *slog.Logger
+	tracer    trace.Tracer
+	metrics   metrics
 
 	mu      sync.Mutex
 	consume jetstream.ConsumeContext
@@ -48,7 +57,10 @@ func NewWorkers(relay config.SubjectRelay, js jetstream.JetStream, log *slog.Log
 		if err != nil {
 			return nil, fmt.Errorf("subject relay %s: %w", relay.Name, err)
 		}
-		workers = append(workers, &Worker{relay: relay, dest: d, transform: t, deliver: dest, js: js, log: wlog})
+		workers = append(workers, &Worker{
+			relay: relay, dest: d, transform: t, deliver: dest, js: js, log: wlog,
+			tracer: otel.Tracer(telemetry.ScopeName), metrics: newMetrics(relay.Name, d.Name),
+		})
 	}
 	return workers, nil
 }
@@ -144,47 +156,76 @@ func (w *Worker) consumerConfig() jetstream.ConsumerConfig {
 	return cfg
 }
 
+// handle delivers one message inside a consumer span whose parent is the
+// trace context carried in the message headers.
 func (w *Worker) handle(msg jetstream.Msg) {
 	attempt := uint64(1)
 	if md, err := msg.Metadata(); err == nil {
 		attempt = md.NumDelivered
 	}
-	log := w.log.With("subject", msg.Subject(), "attempt", attempt)
-
 	m := &message.Message{Subject: msg.Subject(), Headers: http.Header(msg.Headers()), Payload: msg.Data()}
 	if m.Headers == nil {
 		m.Headers = http.Header{}
 	}
+	ctx, span := w.tracer.Start(telemetry.Extract(context.Background(), m.Headers), "process "+w.relay.Subject,
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			semconv.MessagingSystemKey.String("nats"),
+			semconv.MessagingOperationTypeProcess,
+			semconv.MessagingOperationName("process"),
+			semconv.MessagingDestinationName(msg.Subject()),
+			semconv.MessagingConsumerGroupName(w.DurableName()),
+			attribute.String("trowel.relay.name", w.relay.Name),
+			attribute.String("trowel.destination.name", w.dest.Name),
+			attribute.Int64("trowel.delivery.attempt", int64(attempt)),
+		))
+	defer span.End()
+	log := w.log.With("subject", msg.Subject(), "attempt", attempt)
 
-	err := w.process(m)
+	start := time.Now()
+	err := w.process(ctx, m)
+	took := time.Since(start)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	outcome := w.settle(ctx, log, msg, m, err, attempt)
+	span.SetAttributes(attribute.String("trowel.outcome", outcome))
+	w.metrics.delivery(ctx, outcome, took)
+}
+
+// settle acknowledges, retries, or terminates msg after a delivery attempt
+// that returned err, and returns the outcome.
+func (w *Worker) settle(ctx context.Context, log *slog.Logger, msg jetstream.Msg, m *message.Message, err error, attempt uint64) string {
 	if err == nil {
 		if err := msg.Ack(); err != nil {
-			log.Warn("ack failed", "error", err)
+			log.WarnContext(ctx, "ack failed", "error", err)
 		}
-		log.Info("delivered")
-		return
+		log.InfoContext(ctx, "delivered")
+		return outcomeDelivered
 	}
 
 	exhausted := w.relay.Consumer.MaxDeliver > 0 && attempt >= uint64(w.relay.Consumer.MaxDeliver)
 	var perm *permanentError
 	if errors.As(err, &perm) || exhausted {
-		log.Error("delivery failed permanently", "error", err)
-		w.deadLetter(msg, m, err, attempt)
+		log.ErrorContext(ctx, "delivery failed permanently", "error", err)
+		w.deadLetter(ctx, msg, m, err, attempt)
 		if err := msg.Term(); err != nil {
-			log.Warn("term failed", "error", err)
+			log.WarnContext(ctx, "term failed", "error", err)
 		}
-		return
+		return outcomeTerminated
 	}
 	delay := w.retryDelay(attempt)
-	log.Warn("delivery failed, will retry", "error", err, "retry_in", delay.String())
+	log.WarnContext(ctx, "delivery failed, will retry", "error", err, "retry_in", delay.String())
 	if delay > 0 {
 		err = msg.NakWithDelay(delay)
 	} else {
 		err = msg.Nak()
 	}
 	if err != nil {
-		log.Warn("nak failed", "error", err)
+		log.WarnContext(ctx, "nak failed", "error", err)
 	}
+	return outcomeRetry
 }
 
 // retryDelay picks the backoff entry for the attempt that just failed. The
@@ -206,30 +247,41 @@ func (w *Worker) retryDelay(attempt uint64) time.Duration {
 }
 
 // process transforms and delivers. Transform errors are permanent because
-// retrying cannot change the outcome.
-func (w *Worker) process(m *message.Message) error {
+// retrying cannot change the outcome. Delivery is cancelled with the
+// worker and carries the trace context of ctx.
+func (w *Worker) process(ctx context.Context, m *message.Message) error {
 	m, err := w.transform.Apply(m)
 	if err != nil {
 		return &permanentError{err}
 	}
 	w.mu.Lock()
-	ctx := w.ctx
+	wctx := w.ctx
 	w.mu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
+	if wctx == nil {
+		wctx = context.Background()
 	}
-	return w.deliver.Deliver(ctx, m)
+	dctx := trace.ContextWithSpan(baggage.ContextWithBaggage(wctx, baggage.FromContext(ctx)), trace.SpanFromContext(ctx))
+	return w.deliver.Deliver(dctx, m)
 }
 
 // deadLetter publishes the original message to the DLQ subject with failure
 // metadata. Publish errors are logged; the message is still terminated so a
 // broken DLQ cannot wedge the consumer.
-func (w *Worker) deadLetter(msg jetstream.Msg, m *message.Message, cause error, attempt uint64) {
+func (w *Worker) deadLetter(ctx context.Context, msg jetstream.Msg, m *message.Message, cause error, attempt uint64) {
 	dlq := w.relay.Consumer.DLQSubject
 	if dlq == "" {
 		return
 	}
-	out := &nats.Msg{Subject: dlq, Data: msg.Data(), Header: nats.Header(message.CopyHeaders(m.Headers))}
+	ctx, span := w.tracer.Start(ctx, "send "+dlq, trace.WithSpanKind(trace.SpanKindProducer), trace.WithAttributes(
+		semconv.MessagingSystemKey.String("nats"),
+		semconv.MessagingOperationTypeSend,
+		semconv.MessagingOperationName("publish"),
+		semconv.MessagingDestinationName(dlq),
+	))
+	defer span.End()
+	headers := message.CopyHeaders(m.Headers)
+	telemetry.Inject(ctx, headers)
+	out := &nats.Msg{Subject: dlq, Data: msg.Data(), Header: nats.Header(headers)}
 	out.Header.Set("Relay-Origin-Subject", msg.Subject())
 	out.Header.Set("Relay-Name", w.relay.Name)
 	out.Header.Set("Relay-Destination", w.dest.Name)
@@ -240,13 +292,17 @@ func (w *Worker) deadLetter(msg jetstream.Msg, m *message.Message, cause error, 
 		out.Header.Set("Relay-Origin-Stream", md.Stream)
 		out.Header.Set("Relay-Origin-Sequence", strconv.FormatUint(md.Sequence.Stream, 10))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if _, err := w.js.PublishMsg(ctx, out); err != nil {
-		w.log.Error("dead-letter publish failed", "dlq", dlq, "error", err)
+	if _, err := w.js.PublishMsg(pctx, out); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		w.metrics.deadLetter(ctx, "failed")
+		w.log.ErrorContext(ctx, "dead-letter publish failed", "dlq", dlq, "error", err)
 		return
 	}
-	w.log.Info("dead-lettered", "dlq", dlq)
+	w.metrics.deadLetter(ctx, "published")
+	w.log.InfoContext(ctx, "dead-lettered", "dlq", dlq)
 }
 
 // maxErrorHeader bounds Relay-Error so command stderr cannot bloat the

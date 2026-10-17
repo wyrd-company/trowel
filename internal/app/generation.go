@@ -9,6 +9,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/wyrd-company/trowel/internal/config"
 	"github.com/wyrd-company/trowel/internal/natsconn"
@@ -61,7 +62,18 @@ func build(cfg *config.Config, conn *connection, srv *server.Server, log *slog.L
 		}
 		routes.Handle(w.Path, h)
 	}
-	g.routes = routes
+	g.routes = otelhttp.NewHandler(routes, "webhook",
+		// Webhooks usually arrive from outside, so a sender's trace context
+		// is linked rather than adopted as the parent.
+		otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
+		otelhttp.WithFilter(func(r *http.Request) bool { return r.URL.Path != "/healthz" && r.URL.Path != "/readyz" }),
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			if r.Pattern != "" {
+				return r.Method + " " + r.Pattern
+			}
+			return r.Method
+		}),
+	)
 	for _, s := range cfg.Subjects {
 		ws, err := relay.NewWorkers(s, conn.js, log)
 		if err != nil {
