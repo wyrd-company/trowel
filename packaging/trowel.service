@@ -1,0 +1,32 @@
+[Unit]
+Description=Trowel webhook and NATS JetStream relay
+Documentation=https://wyrd.foo/docs/trowel
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/trowel/config.yml
+
+[Service]
+Type=simple
+# Optional NAME=value lines for ${NAME} references in the config.
+EnvironmentFile=-/etc/trowel/trowel.env
+ExecStart=/usr/bin/trowel -config /etc/trowel/config.yml
+# A transient account per start. Override with a drop-in that sets User=
+# when command destinations need a fixed identity or write access.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+UMask=0077
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target

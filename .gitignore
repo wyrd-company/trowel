@@ -30,3 +30,10 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Build output
+bin/
+dist/
+
+# CI-built binary the devcontainer Feature tests install
+features/src/trowel/ci-binary/

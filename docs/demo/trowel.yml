@@ -1,0 +1,29 @@
+# Demo configuration: signed order webhooks in, one command destination out.
+server:
+  listen: 127.0.0.1:8080
+
+nats:
+  url: nats://127.0.0.1:4222
+
+webhooks:
+  - path: /hooks/orders
+    subject: orders.{headers.X-Event}
+    verify:
+      hmac:
+        header: X-Signature
+        prefix: "sha256="
+        secret: ${ORDERS_SECRET}
+
+subjects:
+  - name: fulfil
+    subject: orders.created
+    transform:
+      payload: '{"order": payload.id, "total": payload.total}'
+    consumer:
+      deliver_policy: new
+      max_deliver: 3
+      dlq_subject: dlq.orders
+    destinations:
+      - name: printer
+        command:
+          argv: ["sh", "-c", "echo \"$RELAY_SUBJECT $(cat)\" >> /tmp/trowel-demo/deliveries.txt"]
