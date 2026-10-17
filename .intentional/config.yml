@@ -1,0 +1,28 @@
+$schema: https://intentional.foo/schemas/config.yml
+contract: contract-1
+settings:
+  internal-dependency-bump: patch
+  pre-1-0-bump-mapping: component
+discovery:
+  managed-paths:
+  - detector: devcontainer-feature
+    path: features/src/trowel/devcontainer-feature.json
+    release-unit: trowel
+  - detector: go-module
+    path: go.mod
+    release-unit: trowel
+release-units:
+  trowel:
+    path: .
+    projections:
+    - adapter: go
+      file: go.mod
+      mode: none
+    - adapter: json
+      file: features/src/trowel/devcontainer-feature.json
+      mode: committed
+      pointer: /version
+    tags:
+      primary:
+        role: primary
+        template: '{version}'
