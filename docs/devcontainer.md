@@ -53,7 +53,15 @@ Replace the starter configuration with a read-only bind mount:
 }
 ```
 
-Restart the service after changing it:
+Trowel reloads the file when it changes. Reload it on demand, for example
+after a secret rotates, with:
+
+```bash
+sudo /command/s6-svc -h /run/service/trowel
+```
+
+An editor that saves by replacing the file leaves a single-file bind mount
+showing the old file. Restart the service after such a save:
 
 ```bash
 sudo /command/s6-svc -r /run/service/trowel

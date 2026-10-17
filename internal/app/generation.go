@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -39,11 +40,18 @@ type generation struct {
 	conn    *connection
 	routes  http.Handler
 	workers []*relay.Worker
+
+	// mu guards the count of requests the routes are serving, so a retired
+	// generation keeps its connection until they finish.
+	mu      sync.Mutex
+	active  int
+	retired bool
+	idle    chan struct{}
 }
 
 // build constructs a generation for cfg on conn. It starts nothing.
 func build(cfg *config.Config, conn *connection, srv *server.Server, log *slog.Logger) (*generation, error) {
-	g := &generation{cfg: cfg, conn: conn}
+	g := &generation{cfg: cfg, conn: conn, idle: make(chan struct{})}
 	routes := srv.NewRoutes()
 	pub := webhook.JetStreamPublisher{JS: conn.js}
 	for _, w := range cfg.Webhooks {
@@ -82,5 +90,51 @@ func (g *generation) start(ctx context.Context) error {
 func (g *generation) stop() {
 	for _, w := range g.workers {
 		w.Stop()
+	}
+}
+
+// enter records a request on the routes. It reports false once the
+// generation is retired, so the caller retries on the current one.
+func (g *generation) enter() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.retired {
+		return false
+	}
+	g.active++
+	return true
+}
+
+func (g *generation) leave() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.active--
+	if g.retired && g.active == 0 {
+		close(g.idle)
+	}
+}
+
+// retire lets a replaced generation finish its work: it waits for requests
+// in progress, drains every worker, and, when closeConn is set, drains the
+// connection. Ending ctx cuts the waits short.
+func (g *generation) retire(ctx context.Context, closeConn bool) {
+	g.mu.Lock()
+	g.retired = true
+	if g.active == 0 {
+		close(g.idle)
+	}
+	g.mu.Unlock()
+	select {
+	case <-g.idle:
+	case <-ctx.Done():
+	}
+
+	var wg sync.WaitGroup
+	for _, w := range g.workers {
+		wg.Go(func() { w.Drain(ctx) })
+	}
+	wg.Wait()
+	if closeConn {
+		_ = g.conn.nc.Drain()
 	}
 }

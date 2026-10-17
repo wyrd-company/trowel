@@ -10,6 +10,7 @@ Type=simple
 # Optional NAME=value lines for ${NAME} references in the config.
 EnvironmentFile=-/etc/trowel/trowel.env
 ExecStart=/usr/bin/trowel -config /etc/trowel/config.yml
+ExecReload=/bin/kill -HUP $MAINPID
 # A transient account per start. Override with a drop-in that sets User=
 # when command destinations need a fixed identity or write access.
 DynamicUser=yes

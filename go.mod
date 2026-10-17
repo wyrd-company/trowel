@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/blues/jsonata-go v1.5.4
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats-server/v2 v2.15.0
 	github.com/nats-io/nats.go v1.53.1

@@ -30,7 +30,9 @@ producer, and the example configuration shows them.
 - It does not fan one consumer out to many destinations. Each destination has
   its own durable consumer, so one failing endpoint never redelivers to the
   others.
-- It does not reload. Restart it after changing the configuration or a secret.
+- It does not apply `server` settings or environment variables while it runs.
+  Restart it after changing those. Everything else in the configuration, and
+  every secret, reloads. See [Reload](/docs/trowel/operations#reload).
 
 ## Where it runs
 
@@ -41,4 +43,4 @@ producer, and the example configuration shows them.
 | Dev container | An s6-overlay Feature. See [Dev container Feature](/docs/trowel/devcontainer). |
 
 Secrets can be inline, read from files, or read from OpenBao or Vault at
-startup. See [Secrets](/docs/trowel/secrets).
+startup and on reload. See [Secrets](/docs/trowel/secrets).

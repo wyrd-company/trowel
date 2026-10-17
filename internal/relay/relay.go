@@ -103,6 +103,25 @@ func (w *Worker) Stop() {
 	}
 }
 
+// Drain stops taking new messages and waits until deliveries in progress
+// finish or ctx ends, then cancels any that remain.
+func (w *Worker) Drain(ctx context.Context) {
+	w.mu.Lock()
+	cc, cancel := w.consume, w.cancel
+	w.consume = nil
+	w.mu.Unlock()
+	if cc != nil {
+		cc.Drain()
+		select {
+		case <-cc.Closed():
+		case <-ctx.Done():
+		}
+	}
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (w *Worker) consumerConfig() jetstream.ConsumerConfig {
 	c := w.relay.Consumer
 	cfg := jetstream.ConsumerConfig{

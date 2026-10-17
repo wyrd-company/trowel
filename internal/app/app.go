@@ -3,12 +3,16 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/wyrd-company/trowel/internal/config"
@@ -20,11 +24,34 @@ import (
 type App struct {
 	log    *slog.Logger
 	server *server.Server
-	gen    *generation
+	gen    atomic.Pointer[generation]
+
+	// path, when set, is the config file reloaded on change or SIGHUP.
+	path     string
+	lastSum  [sha256.Size]byte
+	watching chan struct{}
+
+	// retiring tracks replaced generations still finishing their work.
+	// Ending retireCtx cuts that work short at shutdown.
+	retiring     sync.WaitGroup
+	retireCtx    context.Context
+	cancelRetire context.CancelFunc
+}
+
+// Option configures an App.
+type Option func(*App)
+
+// WithReload reloads the configuration from path, whose current content is
+// raw, when the file changes or the process receives SIGHUP.
+func WithReload(path string, raw []byte) Option {
+	return func(a *App) {
+		a.path = path
+		a.lastSum = sha256.Sum256(raw)
+	}
 }
 
 // New connects to NATS and builds every webhook and relay from cfg.
-func New(cfg *config.Config, log *slog.Logger) (*App, error) {
+func New(cfg *config.Config, log *slog.Logger, opts ...Option) (*App, error) {
 	conn, err := connect(cfg.NATS, log)
 	if err != nil {
 		return nil, err
@@ -35,8 +62,26 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		conn.nc.Close()
 		return nil, err
 	}
-	srv.SetRoutes(g.routes)
-	return &App{log: log, server: srv, gen: g}, nil
+	a := &App{log: log, server: srv, watching: make(chan struct{})}
+	a.retireCtx, a.cancelRetire = context.WithCancel(context.Background())
+	for _, o := range opts {
+		o(a)
+	}
+	a.gen.Store(g)
+	srv.SetRoutes(http.HandlerFunc(a.serve))
+	return a, nil
+}
+
+// serve routes a request to the current generation's webhooks.
+func (a *App) serve(w http.ResponseWriter, r *http.Request) {
+	for {
+		g := a.gen.Load()
+		if g.enter() {
+			defer g.leave()
+			g.routes.ServeHTTP(w, r)
+			return
+		}
+	}
 }
 
 // Run starts consumers and the HTTP server and blocks until a signal or
@@ -44,9 +89,10 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 func (a *App) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	defer a.gen.conn.nc.Drain()
+	defer func() { _ = a.gen.Load().conn.nc.Drain() }()
+	defer a.cancelRetire()
 
-	if err := a.gen.start(ctx); err != nil {
+	if err := a.gen.Load().start(ctx); err != nil {
 		return err
 	}
 	a.server.SetReady(true)
@@ -54,20 +100,31 @@ func (a *App) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.server.ListenAndServe() }()
 
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	var watcher sync.WaitGroup
+	if a.path != "" {
+		watcher.Go(func() { a.watch(watchCtx) })
+	}
+
+	var runErr error
 	select {
 	case <-ctx.Done():
 		a.log.Info("shutting down")
 	case err := <-errCh:
 		if err != nil {
-			return fmt.Errorf("http server: %w", err)
+			runErr = fmt.Errorf("http server: %w", err)
 		}
 	}
+	stopWatch()
+	watcher.Wait()
 	a.server.SetReady(false)
-	a.gen.stop()
-	if err := a.server.Shutdown(context.Background()); err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		return err
+	a.gen.Load().stop()
+	if err := a.server.Shutdown(context.Background()); err != nil && !errors.Is(err, context.DeadlineExceeded) && runErr == nil {
+		runErr = err
 	}
-	return nil
+	a.cancelRetire()
+	a.retiring.Wait()
+	return runErr
 }
 
 // Main is the CLI entry point. It returns the process exit code.
@@ -82,7 +139,11 @@ func Main(args []string) int {
 
 	log.Info("trowel starting", "version", Version)
 
-	cfg, err := config.Load(*path)
+	raw, err := os.ReadFile(*path)
+	var cfg *config.Config
+	if err == nil {
+		cfg, err = config.Parse(raw)
+	}
 	if err != nil {
 		log.Error("load config", "path", *path, "error", err)
 		return 2
@@ -95,7 +156,7 @@ func Main(args []string) int {
 		log.Error("resolve vault secrets", "error", err)
 		return 1
 	}
-	a, err := New(cfg, log)
+	a, err := New(cfg, log, WithReload(*path, raw))
 	if err != nil {
 		log.Error("start", "error", err)
 		return 1

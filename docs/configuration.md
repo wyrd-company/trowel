@@ -13,6 +13,10 @@ trowel -config /etc/trowel/config.yml -validate
 
 `${NAME}` anywhere in a value is replaced from the environment at load time. A reference to an unset variable is a startup error. Every secret field also has a `*_file` variant that reads a mounted file and trims whitespace, and a `*_vault` variant that reads a field from OpenBao or Vault; see [Secrets](/docs/trowel/secrets). Exactly one form must be set.
 
+Trowel reloads the file when it changes and on `SIGHUP`. A file that fails
+to load or validate leaves the running configuration in place. See
+[Reload](/docs/trowel/operations#reload).
+
 See [`config.example.yml`](https://github.com/wyrd-company/trowel/blob/main/config.example.yml) for a complete annotated example.
 
 ## `server`
