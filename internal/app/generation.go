@@ -113,24 +113,40 @@ func spanName(_ string, r *http.Request) string {
 	return r.Method + " " + r.Pattern
 }
 
-// start creates or updates every consumer, and only when all of them
-// succeed begins delivering, so a generation whose consumers fail never
-// delivers a message. Starting to consume waits on no server reply; it
-// fails on a local subscription error such as a closed connection. On
-// failure it stops the workers it started.
+// start prepares and then activates every worker.
 func (g *generation) start(ctx context.Context) error {
+	if err := g.prepare(ctx); err != nil {
+		return err
+	}
+	return g.activate()
+}
+
+// prepare creates or updates every consumer without taking a message.
+func (g *generation) prepare(ctx context.Context) error {
 	for _, w := range g.workers {
 		if err := w.Prepare(ctx); err != nil {
 			return fmt.Errorf("start: %w", err)
 		}
 	}
+	return nil
+}
+
+// activate subscribes every worker and admits deliveries only once all of
+// them are subscribed, so a generation that fails to start delivers
+// nothing. On failure the subscribed workers return what they received
+// and stop.
+func (g *generation) activate() error {
 	for i, w := range g.workers {
 		if err := w.Consume(); err != nil {
 			for _, started := range g.workers[:i] {
+				started.Refuse()
 				started.Stop()
 			}
 			return fmt.Errorf("start: %w", err)
 		}
+	}
+	for _, w := range g.workers {
+		w.Admit()
 	}
 	return nil
 }

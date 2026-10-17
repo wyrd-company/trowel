@@ -3,12 +3,16 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/wyrd-company/trowel/internal/config"
+	"github.com/wyrd-company/trowel/internal/relay"
 )
 
 // TestReloadSwitchesNATSConnection replaces the connection when its
@@ -90,6 +94,54 @@ func TestReloadDeliversNothingWhenStartFails(t *testing.T) {
 		if info.CachedInfo().Delivered.Consumer != 0 {
 			t.Errorf("rejected consumer backlog%d took %d messages", i, info.CachedInfo().Delivered.Consumer)
 		}
+	}
+}
+
+// TestActivateDeliversNothingWhenConsumeFails prepares a candidate relay
+// with a backlog, then fails to subscribe a later worker, and expects the
+// candidate to deliver nothing and return what it received.
+func TestActivateDeliversNothingWhenConsumeFails(t *testing.T) {
+	dest, delivered := countingDest(t)
+	e := startReloadEnv(t, func(e *reloadEnv) string { return e.base(hookA) })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for i := range 20 {
+		if _, err := e.js.Publish(ctx, "events.backlog", []byte(fmt.Sprintf(`{"n":%d}`, i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := config.Parse([]byte(e.base(hookA) + "subjects:\n" + relayTo("backlog", "events.backlog", dest.URL)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := e.app.gen.Load()
+	g, err := build(cfg, cur.conn, e.app.server, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// A worker that was never prepared cannot subscribe.
+	unprepared, err := relay.NewWorkers(config.SubjectRelay{Name: "late", Subject: "events.late",
+		Destinations: []config.Destination{{Name: "d", Command: &config.Command{Argv: []string{"true"}}}}}, cur.conn.js, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.workers = append(g.workers, unprepared...)
+	if err := g.activate(); err == nil {
+		t.Fatal("activate succeeded with an unprepared worker")
+	}
+	time.Sleep(time.Second)
+	if n := delivered.Load(); n != 0 {
+		t.Errorf("rejected generation delivered %d messages", n)
+	}
+	cons, err := e.js.Consumer(ctx, "EVENTS", "relay-backlog-api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acked := cons.CachedInfo().AckFloor.Consumer; acked != 0 {
+		t.Errorf("rejected consumer acknowledged %d messages", acked)
 	}
 }
 

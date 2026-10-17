@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -38,6 +39,12 @@ type Worker struct {
 	tracer    trace.Tracer
 	metrics   metrics
 
+	// gate holds every delivery until Admit or Refuse decides whether this
+	// worker's generation runs.
+	gate     chan struct{}
+	decide   sync.Once
+	admitted atomic.Bool
+
 	mu      sync.Mutex
 	cons    jetstream.Consumer
 	stream  string
@@ -62,6 +69,7 @@ func NewWorkers(relay config.SubjectRelay, js jetstream.JetStream, log *slog.Log
 		workers = append(workers, &Worker{
 			relay: relay, dest: d, transform: t, deliver: dest, js: js, log: wlog,
 			tracer: otel.Tracer(telemetry.ScopeName), metrics: newMetrics(relay.Name, d.Name),
+			gate: make(chan struct{}),
 		})
 	}
 	return workers, nil
@@ -97,7 +105,22 @@ func (w *Worker) Prepare(ctx context.Context) error {
 	return nil
 }
 
-// Consume begins delivering from the consumer Prepare set up.
+// Admit lets deliveries proceed.
+func (w *Worker) Admit() {
+	w.decide.Do(func() {
+		w.admitted.Store(true)
+		close(w.gate)
+	})
+}
+
+// Refuse returns every message the worker receives to the stream
+// undelivered. Call it before stopping a worker that was never admitted.
+func (w *Worker) Refuse() {
+	w.decide.Do(func() { close(w.gate) })
+}
+
+// Consume subscribes to the consumer Prepare set up. Messages wait for
+// Admit before they are delivered.
 func (w *Worker) Consume() error {
 	w.mu.Lock()
 	cons, streamName := w.cons, w.stream
@@ -180,6 +203,11 @@ func (w *Worker) consumerConfig() jetstream.ConsumerConfig {
 // handle delivers one message inside a consumer span whose parent is the
 // trace context carried in the message headers.
 func (w *Worker) handle(msg jetstream.Msg) {
+	<-w.gate
+	if !w.admitted.Load() {
+		_ = msg.Nak()
+		return
+	}
 	attempt := uint64(1)
 	if md, err := msg.Metadata(); err == nil {
 		attempt = md.NumDelivered
