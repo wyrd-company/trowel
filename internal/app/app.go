@@ -11,53 +11,32 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/wyrd-company/trowel/internal/config"
-	"github.com/wyrd-company/trowel/internal/natsconn"
-	"github.com/wyrd-company/trowel/internal/relay"
 	"github.com/wyrd-company/trowel/internal/server"
 	"github.com/wyrd-company/trowel/internal/vault"
-	"github.com/wyrd-company/trowel/internal/webhook"
 )
 
 // App is a configured, runnable relay.
 type App struct {
-	cfg     *config.Config
-	log     *slog.Logger
-	nc      *nats.Conn
-	js      jetstream.JetStream
-	server  *server.Server
-	workers []*relay.Worker
+	log    *slog.Logger
+	server *server.Server
+	gen    *generation
 }
 
 // New connects to NATS and builds every webhook and relay from cfg.
 func New(cfg *config.Config, log *slog.Logger) (*App, error) {
-	nc, js, err := natsconn.Connect(cfg.NATS, log)
+	conn, err := connect(cfg.NATS, log)
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, log: log, nc: nc, js: js, server: server.New(cfg.Server, log)}
-
-	pub := webhook.JetStreamPublisher{JS: js}
-	for _, w := range cfg.Webhooks {
-		h, err := webhook.New(w, pub, log)
-		if err != nil {
-			nc.Close()
-			return nil, err
-		}
-		a.server.Handle(w.Path, h)
+	srv := server.New(cfg.Server, log)
+	g, err := build(cfg, conn, srv, log)
+	if err != nil {
+		conn.nc.Close()
+		return nil, err
 	}
-	for _, s := range cfg.Subjects {
-		ws, err := relay.NewWorkers(s, js, log)
-		if err != nil {
-			nc.Close()
-			return nil, err
-		}
-		a.workers = append(a.workers, ws...)
-	}
-	return a, nil
+	srv.SetRoutes(g.routes)
+	return &App{log: log, server: srv, gen: g}, nil
 }
 
 // Run starts consumers and the HTTP server and blocks until a signal or
@@ -65,12 +44,10 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 func (a *App) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	defer a.nc.Drain()
+	defer a.gen.conn.nc.Drain()
 
-	for _, w := range a.workers {
-		if err := w.Start(ctx); err != nil {
-			return err
-		}
+	if err := a.gen.start(ctx); err != nil {
+		return err
 	}
 	a.server.SetReady(true)
 
@@ -86,9 +63,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 	a.server.SetReady(false)
-	for _, w := range a.workers {
-		w.Stop()
-	}
+	a.gen.stop()
 	if err := a.server.Shutdown(context.Background()); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
