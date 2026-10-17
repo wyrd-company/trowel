@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -32,7 +33,8 @@ var errServerChanged = errors.New("server settings changed; restart trowel to ap
 // watch reloads the configuration when its directory changes or the
 // process receives SIGHUP, until ctx ends. Watching the directory rather
 // than the file follows editors and orchestrators that replace the file.
-// When the path is a symlink, the directory of its target is watched too.
+// When the path is a symlink, the directory of its target is watched too,
+// and that watch follows the link when it is retargeted.
 func (a *App) watch(ctx context.Context) {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
@@ -40,10 +42,16 @@ func (a *App) watch(ctx context.Context) {
 
 	var events <-chan fsnotify.Event
 	var errs <-chan error
-	if w, err := a.watchDirs(); err != nil {
+	var cw *configWatch
+	if w, err := fsnotify.NewWatcher(); err != nil {
+		a.log.Error("config watch unavailable; reload with SIGHUP", "path", a.path, "error", err)
+	} else if err := w.Add(filepath.Dir(a.path)); err != nil {
+		w.Close()
 		a.log.Error("config watch unavailable; reload with SIGHUP", "path", a.path, "error", err)
 	} else {
 		defer w.Close()
+		cw = &configWatch{w: w, path: a.path}
+		cw.followTarget(a.log)
 		events, errs = w.Events, w.Errors
 	}
 	close(a.watching)
@@ -56,6 +64,7 @@ func (a *App) watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-hup:
+			cw.followTarget(a.log)
 			a.reloadFile(ctx, true)
 		case _, ok := <-events:
 			if !ok {
@@ -70,29 +79,49 @@ func (a *App) watch(ctx context.Context) {
 			}
 			a.log.Warn("config watch error", "error", err)
 		case <-settle.C:
+			cw.followTarget(a.log)
 			a.reloadFile(ctx, false)
 		}
 	}
 }
 
-// watchDirs watches the directory of the config path and of its resolved
-// target.
-func (a *App) watchDirs() (*fsnotify.Watcher, error) {
-	w, err := fsnotify.NewWatcher()
+// configWatch watches the config file's directory and, when the path is
+// a symlink into another directory, that directory too.
+type configWatch struct {
+	w      *fsnotify.Watcher
+	path   string
+	target string
+}
+
+// followTarget moves the target watch to the directory the path resolves
+// to now. A nil configWatch does nothing.
+func (cw *configWatch) followTarget(log *slog.Logger) {
+	if cw == nil {
+		return
+	}
+	resolved, err := filepath.EvalSymlinks(cw.path)
 	if err != nil {
-		return nil, err
+		return
 	}
-	dirs := []string{filepath.Dir(a.path)}
-	if target, err := filepath.EvalSymlinks(a.path); err == nil && filepath.Dir(target) != dirs[0] {
-		dirs = append(dirs, filepath.Dir(target))
+	dir := filepath.Dir(resolved)
+	if dir == filepath.Dir(cw.path) {
+		dir = ""
 	}
-	for _, d := range dirs {
-		if err := w.Add(d); err != nil {
-			w.Close()
-			return nil, err
-		}
+	if dir == cw.target {
+		return
 	}
-	return w, nil
+	if cw.target != "" {
+		_ = cw.w.Remove(cw.target)
+	}
+	cw.target = ""
+	if dir == "" {
+		return
+	}
+	if err := cw.w.Add(dir); err != nil {
+		log.Warn("config watch cannot follow symlink target; reload with SIGHUP", "path", cw.path, "target", dir, "error", err)
+		return
+	}
+	cw.target = dir
 }
 
 // reloadFile reads the config file and applies it. Unless forced, content

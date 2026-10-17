@@ -46,8 +46,8 @@ the NATS connection.
 ## Reload
 
 Trowel watches the directory that holds its configuration file, and, when
-the path is a symlink, the directory of the file it points at. When the file
-changes, Trowel waits until the directory is quiet for half a second, reads
+the path is a symlink, the directory of the file it points at now. When the
+file changes, Trowel waits until the directory is quiet for half a second, reads
 the file, and applies it if its content differs from the last attempt.
 `SIGHUP` reloads the file even when its content has not changed, which picks
 up rotated `*_file` and `*_vault` secrets. The packaged systemd unit maps

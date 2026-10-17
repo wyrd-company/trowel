@@ -305,6 +305,42 @@ func TestReloadFollowsSymlinkTarget(t *testing.T) {
 	}
 }
 
+// TestReloadFollowsSymlinkRetarget points the config symlink at a file in
+// a second directory, then edits that file.
+func TestReloadFollowsSymlinkRetarget(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "real.yml")
+	second := filepath.Join(t.TempDir(), "real.yml")
+	var link string
+	e := startReloadEnvAt(t, func(e *reloadEnv) string {
+		link = filepath.Join(t.TempDir(), "config.yml")
+		if err := os.WriteFile(first, []byte(e.base(hookA)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(first, link); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+		return link
+	})
+	if err := os.WriteFile(second, []byte(e.base(hookA+hookB)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tmp := link + ".tmp"
+	if err := os.Symlink(second, tmp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		t.Fatal(err)
+	}
+	e.waitLog(reloaded, 1)
+	if err := os.WriteFile(second, []byte(e.base(hookB)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.waitLog(reloaded, 2)
+	if code := e.post("/hooks/a", nil); code != http.StatusNotFound {
+		t.Errorf("after editing the new target /hooks/a status %d", code)
+	}
+}
+
 // TestReloadSwitchesNATSConnection replaces the connection when its
 // settings change and drains the old one.
 func TestReloadSwitchesNATSConnection(t *testing.T) {
