@@ -75,8 +75,9 @@ Some changes still need a restart:
 - `${NAME}` references read the environment Trowel started with.
 
 When step 3 fails after it updated some consumers, those consumers keep their
-new settings on the NATS server, although no message was taken from them. A consumer for a removed relay or
-destination stays on the server; delete it with `nats consumer rm`.
+new settings on the NATS server, although no message was taken from them. A
+consumer for a removed relay or destination stays on the server; delete it
+with `nats consumer rm`.
 
 ## Logs
 
@@ -85,8 +86,8 @@ destination, the attempt, and the reason. An HTTP destination's URL in a
 failure reason, a `Relay-Error` header, or a span keeps only its scheme,
 host, and port; the userinfo, the path, and each query value read
 `REDACTED`, since any of them can carry a credential. Records about a
-traced message also carry `trace_id` and `span_id`. A command destination's stdout is
-logged on success, and its stderr is part of the failure reason.
+traced message also carry `trace_id` and `span_id`. A command destination's
+stdout is logged on success, and its stderr is part of the failure reason.
 
 ## Telemetry
 
