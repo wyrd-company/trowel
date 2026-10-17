@@ -8,10 +8,17 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// Inject writes the trace context and baggage in ctx into h, replacing
-// any value already there under any capitalization.
+// Inject writes the trace context and baggage in ctx into h. It first
+// removes every field the propagator owns, under any capitalization, so
+// no value copied from an earlier hop, such as a sender's tracestate,
+// survives beside a trace context it does not belong to.
 func Inject(ctx context.Context, h http.Header) {
-	otel.GetTextMapPropagator().Inject(ctx, headerCarrier(h))
+	p := otel.GetTextMapPropagator()
+	c := headerCarrier(h)
+	for _, f := range p.Fields() {
+		c.remove(f)
+	}
+	p.Inject(ctx, c)
 }
 
 // Extract returns ctx with the trace context and baggage found in h. NATS
@@ -37,12 +44,16 @@ func (c headerCarrier) Get(key string) string {
 }
 
 func (c headerCarrier) Set(key, value string) {
+	c.remove(key)
+	http.Header(c).Set(key, value)
+}
+
+func (c headerCarrier) remove(key string) {
 	for k := range c {
 		if strings.EqualFold(k, key) {
 			delete(c, k)
 		}
 	}
-	http.Header(c).Set(key, value)
 }
 
 func (c headerCarrier) Keys() []string {

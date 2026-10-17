@@ -136,7 +136,7 @@ func TestTelemetryFollowsAMessageEndToEnd(t *testing.T) {
 	}
 
 	const outside = "4bf92f3577b34da6a3ce929d0e0e4736"
-	if code := e.post("/hooks/a", http.Header{"Traceparent": {"00-" + outside + "-00f067aa0ba902b7-01"}}); code != http.StatusAccepted {
+	if code := e.post("/hooks/a", http.Header{"Traceparent": {"00-" + outside + "-00f067aa0ba902b7-01"}, "Tracestate": {"vendor=opaque"}}); code != http.StatusAccepted {
 		t.Fatalf("post status %d", code)
 	}
 	msg, err := dlq.Next(jetstream.FetchMaxWait(15 * time.Second))
@@ -212,6 +212,17 @@ func TestTelemetryFollowsAMessageEndToEnd(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(envOut); string(b) != traceparentOf(processFor("script").SpanContext()) {
 		t.Errorf("command TRACEPARENT %q, want the script's process span", b)
+	}
+	stream, err := e.js.Stream(ctx, "EVENTS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := stream.GetLastMsgForSubject(ctx, "events.a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts := published.Header.Get("Tracestate"); ts != "" {
+		t.Errorf("published message kept the sender's tracestate %q", ts)
 	}
 	if tp := msg.Headers().Get("Traceparent"); tp != traceparentOf(byName["send events.dlq"][0].SpanContext()) {
 		t.Errorf("dead letter traceparent %q, want the dead-letter span", tp)

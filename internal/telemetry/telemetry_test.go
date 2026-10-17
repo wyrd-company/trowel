@@ -157,6 +157,23 @@ func TestInjectReplacesExistingTraceContext(t *testing.T) {
 	}
 }
 
+func TestInjectDropsFieldsTheContextLacks(t *testing.T) {
+	clearEnv(t)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	ctx, span := sdktrace.NewTracerProvider().Tracer("t").Start(context.Background(), "s")
+	defer span.End()
+	h := http.Header{"Traceparent": {traceparent}, "TraceState": {"vendor=opaque"}, "baggage": {"k=v"}, "X-Other": {"kept"}}
+	Inject(ctx, h)
+	for _, k := range []string{"TraceState", "Tracestate", "baggage", "Baggage"} {
+		if _, ok := h[k]; ok {
+			t.Errorf("header %s survived injection: %v", k, h)
+		}
+	}
+	if h.Get("X-Other") != "kept" || !strings.Contains(h.Get("Traceparent"), span.SpanContext().TraceID().String()) {
+		t.Errorf("headers %v", h)
+	}
+}
+
 // memExporter keeps exported log records.
 type memExporter struct {
 	mu   sync.Mutex
