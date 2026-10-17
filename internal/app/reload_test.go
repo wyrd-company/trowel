@@ -89,6 +89,19 @@ type reloadEnv struct {
 // covering events.>, loading the config returned by body.
 func startReloadEnv(t *testing.T, body func(e *reloadEnv) string) *reloadEnv {
 	t.Helper()
+	return startReloadEnvAt(t, func(e *reloadEnv) string {
+		path := filepath.Join(t.TempDir(), "config.yml")
+		if err := os.WriteFile(path, []byte(body(e)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	})
+}
+
+// startReloadEnvAt is startReloadEnv with the config file placed by place,
+// which returns its path.
+func startReloadEnvAt(t *testing.T, place func(e *reloadEnv) string) *reloadEnv {
+	t.Helper()
 	ns, url := startNATS(t)
 	nc, err := nats.Connect(url)
 	if err != nil {
@@ -102,9 +115,9 @@ func startReloadEnv(t *testing.T, body func(e *reloadEnv) string) *reloadEnv {
 		t.Fatal(err)
 	}
 	e := &reloadEnv{t: t, ns: ns, url: url, js: js, listen: freePort(t), logs: &logRecorder{}}
-	e.path = filepath.Join(t.TempDir(), "config.yml")
-	raw := []byte(body(e))
-	if err := os.WriteFile(e.path, raw, 0o600); err != nil {
+	e.path = place(e)
+	raw, err := os.ReadFile(e.path)
+	if err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Parse(raw)
@@ -232,6 +245,29 @@ func TestReloadIgnoresUnrelatedDirectoryChanges(t *testing.T) {
 	time.Sleep(3 * settleDelay)
 	if n := e.logs.count(reloaded) + e.logs.count(reloadFailed); n != 0 {
 		t.Errorf("unrelated changes caused %d reload attempts", n)
+	}
+}
+
+// TestReloadFollowsSymlinkTarget edits the file a symlinked config path
+// points at, in another directory.
+func TestReloadFollowsSymlinkTarget(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "real.yml")
+	e := startReloadEnvAt(t, func(e *reloadEnv) string {
+		link := filepath.Join(t.TempDir(), "config.yml")
+		if err := os.WriteFile(target, []byte(e.base(hookA)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+		return link
+	})
+	if err := os.WriteFile(target, []byte(e.base(hookB)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.waitLog(reloaded, 1)
+	if code := e.post("/hooks/b", nil); code != http.StatusAccepted {
+		t.Errorf("after reload /hooks/b status %d", code)
 	}
 }
 

@@ -32,6 +32,7 @@ var errServerChanged = errors.New("server settings changed; restart trowel to ap
 // watch reloads the configuration when its directory changes or the
 // process receives SIGHUP, until ctx ends. Watching the directory rather
 // than the file follows editors and orchestrators that replace the file.
+// When the path is a symlink, the directory of its target is watched too.
 func (a *App) watch(ctx context.Context) {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
@@ -39,15 +40,11 @@ func (a *App) watch(ctx context.Context) {
 
 	var events <-chan fsnotify.Event
 	var errs <-chan error
-	if w, err := fsnotify.NewWatcher(); err != nil {
-		a.log.Error("config watch unavailable; reload with SIGHUP", "error", err)
+	if w, err := a.watchDirs(); err != nil {
+		a.log.Error("config watch unavailable; reload with SIGHUP", "path", a.path, "error", err)
 	} else {
 		defer w.Close()
-		if err := w.Add(filepath.Dir(a.path)); err != nil {
-			a.log.Error("config watch unavailable; reload with SIGHUP", "path", a.path, "error", err)
-		} else {
-			events, errs = w.Events, w.Errors
-		}
+		events, errs = w.Events, w.Errors
 	}
 	close(a.watching)
 
@@ -76,6 +73,26 @@ func (a *App) watch(ctx context.Context) {
 			a.reloadFile(ctx, false)
 		}
 	}
+}
+
+// watchDirs watches the directory of the config path and of its resolved
+// target.
+func (a *App) watchDirs() (*fsnotify.Watcher, error) {
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+	dirs := []string{filepath.Dir(a.path)}
+	if target, err := filepath.EvalSymlinks(a.path); err == nil && filepath.Dir(target) != dirs[0] {
+		dirs = append(dirs, filepath.Dir(target))
+	}
+	for _, d := range dirs {
+		if err := w.Add(d); err != nil {
+			w.Close()
+			return nil, err
+		}
+	}
+	return w, nil
 }
 
 // reloadFile reads the config file and applies it. Unless forced, content
