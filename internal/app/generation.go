@@ -115,7 +115,7 @@ func spanName(_ string, r *http.Request) string {
 
 // start creates or updates every consumer, and only when all of them
 // succeed begins delivering, so a generation whose consumers fail never
-// delivers a message. Starting to consume makes no server request; it
+// delivers a message. Starting to consume waits on no server reply; it
 // fails on a local subscription error such as a closed connection. On
 // failure it stops the workers it started.
 func (g *generation) start(ctx context.Context) error {
