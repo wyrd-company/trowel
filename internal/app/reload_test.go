@@ -233,6 +233,7 @@ func TestReloadKeepsCurrentConfigWhenNewOneFails(t *testing.T) {
 	cases := map[string]func(e *reloadEnv) string{
 		"unparseable": func(*reloadEnv) string { return "webhooks: [" },
 		"invalid":     func(e *reloadEnv) string { return e.base("  - path: no-slash\n    subject: events.b\n") },
+		"bad route":   func(e *reloadEnv) string { return e.base(hookB + "  - path: \"/hooks/{\"\n    subject: events.c\n") },
 		"unset env":   func(e *reloadEnv) string { return e.base("  - path: /hooks/b\n    subject: ${TROWEL_TEST_UNSET}\n") },
 		"server":      func(e *reloadEnv) string { return strings.Replace(e.base(hookB), e.listen, "127.0.0.1:1", 1) },
 		"nats down":   func(e *reloadEnv) string { return strings.Replace(e.base(hookB), e.url, "nats://127.0.0.1:1", 1) },

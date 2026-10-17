@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -359,6 +360,9 @@ func (c *Config) Validate() error {
 	if c.NATS.CredsFile != "" && c.NATS.CredsVault != nil {
 		return errors.New("nats: set at most one of creds_file or creds_vault")
 	}
+	routes := http.NewServeMux()
+	routes.HandleFunc("GET /healthz", http.NotFound)
+	routes.HandleFunc("GET /readyz", http.NotFound)
 	paths := map[string]bool{}
 	for i, w := range c.Webhooks {
 		where := fmt.Sprintf("webhooks[%d]", i)
@@ -369,6 +373,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("%s: duplicate path %q", where, w.Path)
 		}
 		paths[w.Path] = true
+		if err := registerRoute(routes, w.Path); err != nil {
+			return fmt.Errorf("%s: path: %w", where, err)
+		}
 		if w.Subject == "" {
 			return fmt.Errorf("%s: subject is required", where)
 		}
@@ -457,6 +464,18 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	return nil
+}
+
+// registerRoute adds path to routes, reporting an invalid or conflicting
+// pattern as an error rather than the panic http.ServeMux raises.
+func registerRoute(routes *http.ServeMux, path string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	routes.HandleFunc(path, http.NotFound)
 	return nil
 }
 
