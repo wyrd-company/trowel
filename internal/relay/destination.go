@@ -5,10 +5,13 @@ package relay
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -98,13 +101,36 @@ func (d *HTTPDestination) Deliver(ctx context.Context, m *message.Message) error
 }
 
 // redact names the destination by its safe URL in an error that carries
-// the URL.
+// the URL, and keeps the cause only when it cannot quote a URL.
 func (d *HTTPDestination) redact(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
-		return &url.Error{Op: ue.Op, URL: d.safeURL, Err: ue.Err}
+		return &url.Error{Op: ue.Op, URL: d.safeURL, Err: safeCause(ue.Err)}
 	}
 	return err
+}
+
+// errCauseWithheld stands in for a request error whose message can quote
+// a URL, such as a failure to parse a redirect's Location header.
+var errCauseWithheld = errors.New("cause withheld because it can contain a URL")
+
+// safeCause returns err when its type is one whose message names at most
+// a host, and errCauseWithheld otherwise.
+func safeCause(err error) error {
+	switch e := err.(type) {
+	case *net.OpError, *net.DNSError, *tls.CertificateVerificationError, tls.RecordHeaderError,
+		x509.UnknownAuthorityError, x509.HostnameError, x509.CertificateInvalidError:
+		return err
+	case net.Error:
+		if e.Timeout() {
+			return err
+		}
+	}
+	switch err {
+	case context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF:
+		return err
+	}
+	return errCauseWithheld
 }
 
 // CommandDestination runs a child process with the payload on stdin and

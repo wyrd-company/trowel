@@ -2,7 +2,11 @@ package relay
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -98,6 +102,39 @@ func TestHTTPDestinationRedactsURLCredentials(t *testing.T) {
 			}
 			assertSpansRedacted(t, spans)
 		})
+	}
+}
+
+func TestHTTPDestinationRedactsMalformedRedirect(t *testing.T) {
+	spans := recordSpans(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "/hook/s3cret-path/%zz?sig=s3cret-sig")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+	d, err := NewDestination(config.Destination{Name: "api", HTTP: &config.HTTP{URL: srv.URL, Method: "POST", Timeout: time.Second}}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = d.Deliver(context.Background(), &message.Message{Subject: "s", Headers: http.Header{}, Payload: []byte("x")})
+	if err == nil {
+		t.Fatal("followed a malformed redirect")
+	}
+	if p := leaks(err.Error()); p != "" {
+		t.Errorf("error carries %s: %v", p, err)
+	}
+	assertSpansRedacted(t, spans)
+}
+
+func TestSafeCauseKeepsHostOnlyErrors(t *testing.T) {
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	for _, err := range []error{refused, context.DeadlineExceeded, io.EOF} {
+		if got := safeCause(err); got != err {
+			t.Errorf("safeCause(%v) = %v, want it kept", err, got)
+		}
+	}
+	if got := safeCause(fmt.Errorf("failed to parse Location header %q", "/s3cret-path")); got != errCauseWithheld {
+		t.Errorf("a quoting error was kept: %v", got)
 	}
 }
 
