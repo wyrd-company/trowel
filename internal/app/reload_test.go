@@ -363,13 +363,15 @@ func TestReloadKeepsOldConnectionForRequestsInProgress(t *testing.T) {
 	waitFor(t, func() bool { return len(e.conns()["trowel"]) == 0 })
 }
 
-// TestReloadCoalescesRapidWrites saves the file several times within the
-// settle delay and expects one reload of the last content.
+// TestReloadCoalescesRapidWrites saves the file several times, each save
+// within the settle delay of the last, and expects one reload of the last
+// content.
 func TestReloadCoalescesRapidWrites(t *testing.T) {
 	e := startReloadEnv(t, func(e *reloadEnv) string { return e.base(hookA) })
-	e.write(e.base(hookA + hookB))
-	e.write(e.base(hookB))
-	e.write(e.base(hookA + hookB))
+	for _, hooks := range []string{hookA + hookB, hookB, hookA + hookB} {
+		e.write(e.base(hooks))
+		time.Sleep(settleDelay / 5)
+	}
 	e.waitLog(reloaded, 1)
 	time.Sleep(3 * settleDelay)
 	if n := e.logs.count(reloaded); n != 1 {
