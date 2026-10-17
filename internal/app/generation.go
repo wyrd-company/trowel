@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/nats-io/nats.go"
@@ -67,12 +68,7 @@ func build(cfg *config.Config, conn *connection, srv *server.Server, log *slog.L
 		// is linked rather than adopted as the parent.
 		otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
 		otelhttp.WithFilter(func(r *http.Request) bool { return r.URL.Path != "/healthz" && r.URL.Path != "/readyz" }),
-		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
-			if r.Pattern != "" {
-				return r.Method + " " + r.Pattern
-			}
-			return r.Method
-		}),
+		otelhttp.WithSpanNameFormatter(spanName),
 	)
 	for _, s := range cfg.Subjects {
 		ws, err := relay.NewWorkers(s, conn.js, log)
@@ -82,6 +78,18 @@ func build(cfg *config.Config, conn *connection, srv *server.Server, log *slog.L
 		g.workers = append(g.workers, ws...)
 	}
 	return g, nil
+}
+
+// spanName names a server span for the method and the matched route. A
+// route registered with a method already starts with it.
+func spanName(_ string, r *http.Request) string {
+	switch {
+	case r.Pattern == "":
+		return r.Method
+	case strings.Contains(r.Pattern, " "):
+		return r.Pattern
+	}
+	return r.Method + " " + r.Pattern
 }
 
 // start creates or updates every consumer and begins delivering. On

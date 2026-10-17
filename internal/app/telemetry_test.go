@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -181,8 +182,10 @@ func TestTelemetryFollowsAMessageEndToEnd(t *testing.T) {
 		t.Errorf("dead-letter spans %v", dl)
 	}
 
-	if n := len(byName["GET /readyz"]) + len(byName["GET"]); n != 0 {
-		t.Errorf("%d health check spans recorded", n)
+	for name := range byName {
+		if strings.Contains(name, "/readyz") || strings.Contains(name, "/healthz") {
+			t.Errorf("health check span %q recorded", name)
+		}
 	}
 
 	// Each hop carries the span that made it, not a copy of an earlier one.
@@ -245,5 +248,16 @@ func TestTelemetryFollowsAMessageEndToEnd(t *testing.T) {
 	}
 	if n := sum(t, reader, "trowel.config.reloads", outcome("failed")); n != 1 {
 		t.Errorf("failed reloads %d", n)
+	}
+}
+
+func TestSpanName(t *testing.T) {
+	cases := map[string]string{"": "POST", "/hooks/a": "POST /hooks/a", "GET /readyz": "GET /readyz"}
+	for pattern, want := range cases {
+		r := httptest.NewRequest(http.MethodPost, "/", nil)
+		r.Pattern = pattern
+		if got := spanName("", r); got != want {
+			t.Errorf("pattern %q: span name %q, want %q", pattern, got, want)
+		}
 	}
 }

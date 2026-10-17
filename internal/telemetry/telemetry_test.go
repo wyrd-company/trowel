@@ -135,7 +135,7 @@ const traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 func TestExtractIgnoresHeaderCase(t *testing.T) {
 	clearEnv(t)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
-	ctx := Extract(context.Background(), http.Header{"traceparent": {traceparent}})
+	ctx := Extract(context.Background(), http.Header{"TraceParent": {traceparent}})
 	if got := trace.SpanContextFromContext(ctx).TraceID().String(); got != "0af7651916cd43dd8448eb211c80319c" {
 		t.Errorf("trace id %q", got)
 	}
@@ -147,7 +147,7 @@ func TestInjectReplacesExistingTraceContext(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	ctx, span := tp.Tracer("t").Start(context.Background(), "s")
 	defer span.End()
-	h := http.Header{"traceparent": {traceparent}, "Traceparent": {traceparent}}
+	h := http.Header{"TraceParent": {traceparent}, "Traceparent": {traceparent}}
 	Inject(ctx, h)
 	if len(h) != 1 || len(h["Traceparent"]) != 1 {
 		t.Fatalf("headers %v", h)
