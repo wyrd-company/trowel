@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compatibility:
+    name: Prove package publisher compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Pin a repo.wyrd.foo commit whose config/products.json allows trowel.
+    # The non-SHA sentinel deliberately blocks every release until it is replaced.
+    env:
+      REPO_WYRD_FOO_PUBLISHER_COMMIT: REPLACE_WITH_REPO_WYRD_FOO_COMMIT_THAT_ALLOWS_TROWEL
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate release and publisher pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          then
+          echo "Release tags must be bare stable SemVer values." >&2
+          exit 1
+          fi
+          if [[ ! "$REPO_WYRD_FOO_PUBLISHER_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          then
+          echo "Replace the repo.wyrd.foo publisher sentinel before releasing." >&2
+          exit 1
+          fi
+
+      - name: Check out pinned package publisher contract
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: wyrd-company/repo.wyrd.foo
+          ref: ${{ env.REPO_WYRD_FOO_PUBLISHER_COMMIT }}
+          path: .repo-wyrd-foo-contract
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install package inspectors
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm
+
+      - name: Build and stage through the publisher contract
+        shell: bash
+        run: >-
+          go run github.com/go-task/task/v3/cmd/task@v3.52.0
+          release:compatibility
+          PUBLISHER_ROOT=.repo-wyrd-foo-contract
+          PUBLISHER_COMMIT="$REPO_WYRD_FOO_PUBLISHER_COMMIT"
+          RELEASE_VERSION="$GITHUB_REF_NAME"
+          RELEASE_COMMIT="$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")"
+
+  release:
+    name: Build and publish release
+    needs: compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Write release notes from the changelog
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          scripts/release-notes.sh "$RELEASE_VERSION" > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Build and publish GitHub release
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          distribution: goreleaser
+          version: v2.17.0
+          args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create package repository handoff
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          commit="$(git rev-list -n 1 "refs/tags/$RELEASE_VERSION")"
+          scripts/create-release-manifest.py \
+          --artifacts-dir dist \
+          --version "$RELEASE_VERSION" \
+          --commit "$commit" \
+          --output dist/release-manifest.json
+
+      - name: Preserve package repository handoff
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: package-release-manifest
+          path: dist/release-manifest.json
+          if-no-files-found: error
+          retention-days: 90

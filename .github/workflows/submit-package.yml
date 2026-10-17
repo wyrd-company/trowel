@@ -1,0 +1,118 @@
+name: Submit package release
+
+# Recovery reuses the original Release run's digest-bound manifest. Its retained
+# artifact expires after 90 days; missing artifacts fail instead of being rebuilt
+# from GitHub Release assets, which owners can replace after publication.
+
+on:
+  workflow_run:
+    workflows:
+      - Release
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Release workflow run retaining the original handoff
+        required: true
+        type: string
+      tag:
+        description: Bare stable SemVer tag produced by that Release workflow run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: package-submission-${{ github.event.workflow_run.id || inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    name: Commit release manifest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted submission code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Validate original Release workflow run
+        id: release_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          then
+          echo "Release workflow run ID must be a positive integer." >&2
+          exit 1
+          fi
+          metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID")"
+          if ! jq -e --arg repository "$GITHUB_REPOSITORY" '
+          .path == ".github/workflows/release.yml" and
+          .event == "push" and
+          .conclusion == "success" and
+          .head_repository.full_name == $repository
+          ' <<<"$metadata" >/dev/null
+          then
+          echo "Run must be a successful same-repository Release workflow" \
+          "triggered by a tag push." >&2
+          exit 1
+          fi
+          head_sha="$(jq -r '.head_sha' <<<"$metadata")"
+          if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ ]]
+          then
+          echo "Release workflow run did not expose a full source commit." >&2
+          exit 1
+          fi
+          echo "run_id=$RELEASE_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Download retained release handoff
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: package-release-manifest
+          path: handoff
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.release_run.outputs.run_id }}
+
+      - name: Verify retained handoff identity
+        shell: bash
+        env:
+          EXPECTED_TAG: ${{ inputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release_run.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          arguments=(
+          --manifest handoff/release-manifest.json
+          --commit "$RELEASE_COMMIT"
+          )
+          if [[ -n "$EXPECTED_TAG" ]]
+          then
+          arguments+=(--expected-version "$EXPECTED_TAG")
+          fi
+          release_version="$(scripts/verify-release-handoff.py "${arguments[@]}")"
+          git fetch --no-tags origin "refs/tags/$release_version:refs/tags/$release_version"
+          tag_commit="$(git rev-parse "refs/tags/$release_version^{}")"
+          if [[ "$tag_commit" != "$RELEASE_COMMIT" ]]
+          then
+          echo "Retained handoff, workflow run, and release tag do not identify one commit." >&2
+          exit 1
+          fi
+          echo "Verified retained package handoff for $release_version."
+
+      - name: Submit package release
+        uses: wyrd-company/repo.wyrd.foo/.github/actions/submit-release@0e0d0e934e1a0f6f34550ed9ee28717623614b8c
+        with:
+          manifest: handoff/release-manifest.json
+          # The pinned action accepts a numeric App ID through this input.
+          app-client-id: ${{ secrets.REPO_WYRD_FOO_PUBLISHER_APP_ID }}
+          app-private-key: ${{ secrets.REPO_WYRD_FOO_PUBLISHER_PRIVATE_KEY }}

@@ -1,0 +1,83 @@
+version: 2
+
+project_name: trowel
+
+snapshot:
+  version_template: "{{ .Env.RELEASE_VERSION }}"
+
+builds:
+  - id: trowel
+    main: ./cmd/trowel
+    binary: trowel
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - >-
+        -s -w
+        -X github.com/wyrd-company/trowel/internal/app.Version={{ .Version }}
+
+archives:
+  - id: archives
+    ids:
+      - trowel
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}
+    files:
+      - LICENSE
+      - README.md
+      - config.example.yml
+      - packaging/*
+
+nfpms:
+  - id: packages
+    ids:
+      - trowel
+    package_name: trowel
+    formats:
+      - deb
+      - rpm
+    vendor: Wyrd Company
+    homepage: https://github.com/wyrd-company/trowel
+    maintainer: Wyrd Company <support@wyrd.company>
+    description: Relay HTTP webhooks into NATS JetStream and JetStream messages out to HTTP or commands
+    license: Apache-2.0
+    bindir: /usr/bin
+    file_name_template: >-
+      {{ .PackageName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/trowel/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/trowel/README.md
+      - src: config.example.yml
+        dst: /usr/share/doc/trowel/config.example.yml
+      - src: packaging/trowel.service
+        dst: /usr/lib/systemd/system/trowel.service
+        file_info:
+          mode: 0644
+    scripts:
+      preinstall: packaging/preinstall.sh
+      postinstall: packaging/postinstall.sh
+      preremove: packaging/preremove.sh
+      postremove: packaging/postremove.sh
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  # Notes come from the CHANGELOG section intentional wrote for this version.
+  mode: replace
+
+changelog:
+  disable: true
