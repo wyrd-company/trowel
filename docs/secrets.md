@@ -10,8 +10,8 @@ be set.
 | Form | Example | Read |
 | --- | --- | --- |
 | Inline | `secret: ${GITHUB_WEBHOOK_SECRET}` | at load, from the value or the environment |
-| File | `secret_file: /run/secrets/github-webhook` | at startup, trimmed |
-| Vault | `secret_vault: {path: trowel/github, field: webhook-secret}` | at startup, from OpenBao or Vault |
+| File | `secret_file: /run/secrets/github-webhook` | at startup and on reload, trimmed |
+| Vault | `secret_vault: {path: trowel/github, field: webhook-secret}` | at startup and on reload, from OpenBao or Vault |
 
 The fields with these forms are `secret` (HMAC and static), `public_key` and
 `private_key` (Ed25519), and `nats.creds`, which has only the file and Vault
@@ -49,11 +49,14 @@ vault:
       secret_id_file: /run/secrets/openbao-secret-id
 ```
 
-Trowel reads every reference once, before it connects to NATS, then uses the
-values like inline secrets. Each secret path is read once even when several
-fields come from it. A missing secret, a missing field, a field that is not a
-string, or a denied read stops startup with the location of the reference.
-Restart Trowel to pick up a rotated secret.
+Trowel reads every reference at startup, before it connects to NATS, and
+again on every reload, then uses the values like inline secrets. Each secret
+path is read once per load even when several fields come from it. A missing
+secret, a missing field, a field that is not a string, or a denied read stops
+startup, or fails the reload, with the location of the reference. Send
+`SIGHUP` to pick up a rotated secret. A reload whose `nats.creds_file` or
+`nats.creds_vault` contents changed opens a new NATS connection with them. See
+[Reload](/docs/trowel/operations#reload).
 
 `-validate` checks references and the `vault` section without contacting the
 server.

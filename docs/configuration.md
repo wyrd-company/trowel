@@ -13,6 +13,10 @@ trowel -config /etc/trowel/config.yml -validate
 
 `${NAME}` anywhere in a value is replaced from the environment at load time. A reference to an unset variable is a startup error. Every secret field also has a `*_file` variant that reads a mounted file and trims whitespace, and a `*_vault` variant that reads a field from OpenBao or Vault; see [Secrets](/docs/trowel/secrets). Exactly one form must be set.
 
+Trowel reloads the file when it changes and on `SIGHUP`. A file that fails
+to load or validate leaves the running configuration in place. See
+[Reload](/docs/trowel/operations#reload).
+
 See [`config.example.yml`](https://github.com/wyrd-company/trowel/blob/main/config.example.yml) for a complete annotated example.
 
 ## `server`
@@ -96,6 +100,22 @@ If no `dlq_subject` is set the message is terminated and logged.
 | `headers` | none. Static headers, set after relayed headers. |
 | `timeout` | `30s` |
 | `sign` | none. Exactly one of `hmac`, `ed25519`, `static`. |
+| `show` | none. `${NAME}` references in `url` whose values may appear where the destination is named. |
+
+Logs, `Relay-Error` headers, and spans name the destination by its URL as
+written in the configuration. Each `${NAME}` reference stays as written
+unless `show` lists it. Userinfo reads `REDACTED:REDACTED`, which needs the
+scheme, `://`, and `@` written literally; a URL whose userinfo a reference
+could hide or move is named like a URL without references. Such a URL keeps
+only its scheme, host, and port, because Trowel cannot tell which part is
+secret.
+
+```yaml
+http:
+  url: https://${HOOK_HOST}/services/${HOOK_TOKEN}
+  show: [HOOK_HOST]
+  # named as https://hooks.example.test/services/${HOOK_TOKEN}
+```
 
 The request carries the message payload as the body, the relayed message headers, the static headers, `X-Relay-Subject`, and the signature. Any status outside `2xx` is a failed delivery.
 

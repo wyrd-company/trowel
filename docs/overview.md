@@ -19,6 +19,10 @@ process, one YAML file.
   Failed deliveries retry on the consumer's schedule and dead-letter to a
   subject when attempts run out.
 
+Trowel exports OpenTelemetry traces, metrics, and logs, and one trace follows
+each webhook through JetStream to every destination. See
+[Telemetry](/docs/trowel/operations#telemetry).
+
 Nothing is specific to one sender. GitHub webhooks are the first intended
 producer, and the example configuration shows them.
 
@@ -30,7 +34,9 @@ producer, and the example configuration shows them.
 - It does not fan one consumer out to many destinations. Each destination has
   its own durable consumer, so one failing endpoint never redelivers to the
   others.
-- It does not reload. Restart it after changing the configuration or a secret.
+- It does not apply `server` settings or environment variables while it runs.
+  Restart it after changing those. Everything else in the configuration, and
+  every secret, reloads. See [Reload](/docs/trowel/operations#reload).
 
 ## Where it runs
 
@@ -41,4 +47,4 @@ producer, and the example configuration shows them.
 | Dev container | An s6-overlay Feature. See [Dev container Feature](/docs/trowel/devcontainer). |
 
 Secrets can be inline, read from files, or read from OpenBao or Vault at
-startup. See [Secrets](/docs/trowel/secrets).
+startup and on reload. See [Secrets](/docs/trowel/secrets).

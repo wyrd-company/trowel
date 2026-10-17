@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -172,6 +173,16 @@ type HTTP struct {
 	Headers map[string]string `yaml:"headers"`
 	Timeout time.Duration     `yaml:"timeout"`
 	Sign    *Sign             `yaml:"sign"`
+	// Show lists ${NAME} references in URL whose values may appear where
+	// the destination is named. Others stay written as ${NAME}.
+	Show []string `yaml:"show"`
+	// Template is URL as written, before ${NAME} expansion. It is never
+	// read from YAML.
+	Template string `yaml:"-"`
+	// DisplayURL names the destination in logs, dead-letter headers, and
+	// spans. It is empty when URL has no references, and then the URL is
+	// redacted in full.
+	DisplayURL string `yaml:"-"`
 }
 
 // Command delivers the message body on stdin of a child process.
@@ -204,15 +215,6 @@ const (
 	DefaultAppRoleMount      = "approle"
 )
 
-// Load reads, expands, parses, and validates a configuration file.
-func Load(path string) (*Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return Parse(raw)
-}
-
 // Parse decodes YAML, expands environment references in values, applies
 // defaults, and validates.
 func Parse(raw []byte) (*Config, error) {
@@ -222,12 +224,14 @@ func Parse(raw []byte) (*Config, error) {
 	}
 	var cfg Config
 	if doc.Kind != 0 {
-		if err := expandNode(&doc); err != nil {
+		written, err := expandNode(&doc)
+		if err != nil {
 			return nil, err
 		}
 		if err := decodeStrict(&doc, &cfg); err != nil {
 			return nil, fmt.Errorf("parse config: %w", err)
 		}
+		cfg.setTemplates(&doc, written)
 	}
 	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -314,6 +318,7 @@ func (c *Config) applyDefaults() {
 				if d.HTTP.Timeout == 0 {
 					d.HTTP.Timeout = DefaultHTTPTimeout
 				}
+				d.HTTP.DisplayURL = displayURL(d.HTTP.Template, d.HTTP.URL, d.HTTP.Show)
 				if d.HTTP.Sign != nil {
 					applyHMACDefaults(d.HTTP.Sign.HMAC)
 					applyEd25519Defaults(d.HTTP.Sign.Ed25519)
@@ -368,6 +373,9 @@ func (c *Config) Validate() error {
 	if c.NATS.CredsFile != "" && c.NATS.CredsVault != nil {
 		return errors.New("nats: set at most one of creds_file or creds_vault")
 	}
+	routes := http.NewServeMux()
+	routes.HandleFunc("GET /healthz", http.NotFound)
+	routes.HandleFunc("GET /readyz", http.NotFound)
 	paths := map[string]bool{}
 	for i, w := range c.Webhooks {
 		where := fmt.Sprintf("webhooks[%d]", i)
@@ -378,6 +386,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("%s: duplicate path %q", where, w.Path)
 		}
 		paths[w.Path] = true
+		if err := registerRoute(routes, w.Path); err != nil {
+			return fmt.Errorf("%s: path: %w", where, err)
+		}
 		if w.Subject == "" {
 			return fmt.Errorf("%s: subject is required", where)
 		}
@@ -446,6 +457,9 @@ func (c *Config) Validate() error {
 				if d.HTTP.URL == "" {
 					return fmt.Errorf("%s.http: url is required", dw)
 				}
+				if err := validateShow(dw, d.HTTP.Template, d.HTTP.Show); err != nil {
+					return err
+				}
 				if d.HTTP.Sign != nil {
 					if err := validateOneOf(dw+".http.sign", d.HTTP.Sign.HMAC != nil, d.HTTP.Sign.Ed25519 != nil, d.HTTP.Sign.Static != nil); err != nil {
 						return err
@@ -466,6 +480,18 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	return nil
+}
+
+// registerRoute adds path to routes, reporting an invalid or conflicting
+// pattern as an error rather than the panic http.ServeMux raises.
+func registerRoute(routes *http.ServeMux, path string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	routes.HandleFunc(path, http.NotFound)
 	return nil
 }
 

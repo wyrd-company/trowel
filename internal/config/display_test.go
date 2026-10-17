@@ -1,0 +1,185 @@
+package config
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+func displayOf(t *testing.T, url, show string) string {
+	t.Helper()
+	raw := fmt.Sprintf("subjects:\n  - name: s\n    subject: s\n    destinations:\n      - name: d\n        http:\n          url: %q\n%s", url, show)
+	cfg, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Subjects[0].Destinations[0].HTTP.DisplayURL
+}
+
+func TestDisplayURL(t *testing.T) {
+	t.Setenv("TEST_HOOK", "s3cret-hook")
+	t.Setenv("TEST_SIG", "s3cret-sig")
+	t.Setenv("TEST_HOST", "api.example.test")
+	t.Setenv("TEST_CREDS", "user:s3cret-pass")
+	cases := []struct {
+		name, url, show, want string
+	}{
+		{"reference kept", "https://hooks.example.test/services/${TEST_HOOK}", "", "https://hooks.example.test/services/${TEST_HOOK}"},
+		{"shown reference expanded", "https://${TEST_HOST}/in?sig=${TEST_SIG}", "          show: [TEST_HOST]\n", "https://api.example.test/in?sig=${TEST_SIG}"},
+		{"no references", "https://api.example.test/in?sig=literal", "", ""},
+		{"literal userinfo", "https://user:literal-pass@${TEST_HOST}/x", "", "https://REDACTED:REDACTED@${TEST_HOST}/x"},
+		{"shown userinfo", "https://${TEST_CREDS}@api.example.test/${TEST_HOOK}", "          show: [TEST_CREDS]\n", "https://REDACTED:REDACTED@api.example.test/${TEST_HOOK}"},
+		{"at sign in path", "https://${TEST_HOST}/a@b", "          show: [TEST_HOST]\n", "https://api.example.test/a@b"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := displayOf(t, c.url, c.show)
+			if got != c.want {
+				t.Errorf("display %q, want %q", got, c.want)
+			}
+			if strings.Contains(got, "s3cret") {
+				t.Errorf("display %q carries a secret", got)
+			}
+		})
+	}
+}
+
+func TestShowMustNameAReference(t *testing.T) {
+	t.Setenv("TEST_HOST", "api.example.test")
+	raw := "subjects:\n  - name: s\n    subject: s\n    destinations:\n      - name: d\n        http:\n          url: https://${TEST_HOST}/in\n          show: [TEST_OTHER]\n"
+	if _, err := Parse([]byte(raw)); err == nil || !strings.Contains(err.Error(), "TEST_OTHER") {
+		t.Errorf("err %v, want show rejected", err)
+	}
+}
+
+// TestDisplayURLFollowsDecoding covers YAML shapes where the written
+// document and the decoded config differ: null entries, which decoding
+// skips, and anchors, aliases, merge keys, and flow style.
+func TestDisplayURLFollowsDecoding(t *testing.T) {
+	t.Setenv("TEST_HOST", "api.example.test")
+	t.Setenv("TEST_TOKEN", "s3cret-token")
+	const want = "https://api.example.test/${TEST_TOKEN}"
+	cases := map[string]string{
+		"null subject": `subjects:
+  - null
+  - name: s
+    subject: s
+    destinations: [{name: d, http: {url: "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}]
+`,
+		"null destination": `subjects:
+  - name: s
+    subject: s
+    destinations:
+      - null
+      - {name: d, http: {url: "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}
+`,
+		"http alias": `subjects:
+  - name: s
+    subject: s
+    destinations:
+      - {name: a, http: &endpoint {url: "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}
+      - {name: d, http: *endpoint}
+`,
+		"merge key": `subjects:
+  - name: s
+    subject: s
+    destinations:
+      - {name: a, http: &endpoint {url: "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}
+      - name: d
+        http:
+          <<: *endpoint
+          timeout: 5s
+`,
+		"scalar alias": `subjects:
+  - name: s
+    subject: s
+    destinations:
+      - {name: a, http: {url: &u "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}
+      - {name: d, http: {url: *u, show: [TEST_HOST]}}
+`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Parse([]byte(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dests := cfg.Subjects[len(cfg.Subjects)-1].Destinations
+			if got := dests[len(dests)-1].HTTP.DisplayURL; got != want {
+				t.Errorf("display %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestDisplayURLNeverShowsUserinfo builds URLs whose userinfo the display
+// template cannot locate, and expects full redaction instead.
+func TestDisplayURLNeverShowsUserinfo(t *testing.T) {
+	t.Setenv("TEST_PREFIX", "http://")
+	t.Setenv("TEST_SLASHES", "//")
+	t.Setenv("TEST_CREDS", "generic-user:s3cret-pass")
+	t.Setenv("TEST_ENCODED", "generic%2Duser:s3cret%2Dpass")
+	t.Setenv("TEST_USER", "generic-user")
+	t.Setenv("TEST_EMPTY", "")
+	t.Setenv("TEST_FRAGMENT", "-")
+	cases := map[string]struct{ url, show string }{
+		"shown creds after unshown scheme":    {"${TEST_PREFIX}${TEST_CREDS}@example.test/path", "          show: [TEST_CREDS]\n"},
+		"literal creds after unshown scheme":  {"${TEST_PREFIX}generic-user:s3cret-pass@example.test/path", ""},
+		"literal creds after unshown slashes": {"https:${TEST_SLASHES}generic-user:s3cret-pass@example.test/path", ""},
+		"unparsable expanded url":             {"${TEST_PREFIX}generic-user:s3cret-pass@example.test/%zz", ""},
+		"encoded creds after unshown scheme":  {"${TEST_PREFIX}${TEST_ENCODED}@example.test/path", "          show: [TEST_ENCODED]\n"},
+		"creds split by an empty reference":   {"${TEST_PREFIX}${TEST_USER}:s3cret${TEST_EMPTY}pass@example.test/path", ""},
+		"creds split by a reference":          {"${TEST_PREFIX}${TEST_USER}:s3cret${TEST_FRAGMENT}pass@example.test/path", ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := displayOf(t, c.url, c.show)
+			if strings.Contains(got, "s3cret") || strings.Contains(got, "generic") {
+				t.Errorf("display %q shows userinfo", got)
+			}
+		})
+	}
+}
+
+// TestDisplayURLRedactsSplitCredsAtALiteralAuthority locates the userinfo
+// by the literal :// and @ even when references split it.
+func TestDisplayURLRedactsSplitCredsAtALiteralAuthority(t *testing.T) {
+	t.Setenv("TEST_USER", "generic-user")
+	t.Setenv("TEST_EMPTY", "")
+	t.Setenv("TEST_HOST", "a@b.example.test")
+	if got := displayOf(t, "http://${TEST_USER}:s3cret${TEST_EMPTY}pass@example.test/path", ""); got != "http://REDACTED:REDACTED@example.test/path" {
+		t.Errorf("display %q", got)
+	}
+	// A reference in the authority that holds @ could move it.
+	if got := displayOf(t, "http://user:s3cret@${TEST_HOST}/path", ""); got != "" {
+		t.Errorf("display %q, want full redaction", got)
+	}
+	// A reference before :// can carry its own userinfo.
+	t.Setenv("TEST_LEAD", "http://generic-user:s3cret@other.example.test/?u=")
+	if got := displayOf(t, "${TEST_LEAD}://a@example.test/x", "          show: [TEST_LEAD]\n"); got != "" {
+		t.Errorf("display %q, want full redaction", got)
+	}
+}
+
+// TestTemplatesAcceptTaggedExpansions keeps expansion-dependent tagged
+// values valid: capturing URLs as written must not validate them again.
+func TestTemplatesAcceptTaggedExpansions(t *testing.T) {
+	t.Setenv("TEST_B64_URL", "aHR0cHM6Ly9hcGkuZXhhbXBsZS50ZXN0L3g=")
+	t.Setenv("TEST_NULL", "null")
+	cfg, err := Parse([]byte(`subjects:
+  - name: s
+    subject: s
+    destinations:
+      - {name: a, http: {url: !!binary '${TEST_B64_URL}'}}
+      - {name: b, http: !!null '${TEST_NULL}', command: {argv: ["true"]}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Subjects[0].Destinations[0].HTTP.URL; got != "https://api.example.test/x" {
+		t.Errorf("url %q", got)
+	}
+	if cfg.Subjects[0].Destinations[1].HTTP != nil {
+		t.Error("http not null")
+	}
+}

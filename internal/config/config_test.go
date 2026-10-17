@@ -76,6 +76,8 @@ func TestValidateErrors(t *testing.T) {
 		"unknown field":    "webhooks:\n  - path: /a\n    subject: a\n    bogus: 1\n",
 		"dup path":         "webhooks:\n  - {path: /a, subject: a}\n  - {path: /a, subject: b}\n",
 		"negative body":    "webhooks:\n  - {path: /a, subject: a, max_body_bytes: -1}\n",
+		"bad wildcard":     "webhooks:\n  - {path: \"/hooks/{\", subject: a}\n",
+		"route conflict":   "webhooks:\n  - {path: \"/hooks/{a}\", subject: a}\n  - {path: \"/hooks/{b}\", subject: b}\n",
 	}
 	for name, raw := range cases {
 		if _, err := Parse([]byte(raw)); err == nil {

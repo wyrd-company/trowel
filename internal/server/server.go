@@ -13,22 +13,36 @@ import (
 	"github.com/wyrd-company/trowel/internal/config"
 )
 
-// Server is the inbound HTTP listener.
+// Server is the inbound HTTP listener. Its routes can be replaced while it
+// serves.
 type Server struct {
-	http  *http.Server
-	mux   *http.ServeMux
-	ready atomic.Bool
-	log   *slog.Logger
+	http   *http.Server
+	routes atomic.Pointer[http.Handler]
+	ready  atomic.Bool
+	log    *slog.Logger
 }
 
-// New builds a server with health routes registered.
+// New builds a server that answers 404 until routes are set.
 func New(cfg config.Server, log *slog.Logger) *Server {
-	s := &Server{mux: http.NewServeMux(), log: log}
-	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	s := &Server{log: log}
+	s.SetRoutes(http.NotFoundHandler())
+	s.http = &http.Server{
+		Addr:              cfg.Listen,
+		Handler:           http.HandlerFunc(s.serve),
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+	}
+	return s
+}
+
+// NewRoutes returns a mux with the health routes registered, for callers to
+// add webhook routes to before passing it to SetRoutes.
+func (s *Server) NewRoutes() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if !s.ready.Load() {
 			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
@@ -36,22 +50,19 @@ func New(cfg config.Server, log *slog.Logger) *Server {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready\n"))
 	})
-	s.http = &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           s.mux,
-		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-	}
-	return s
+	return mux
 }
 
-// Handle registers a route.
-func (s *Server) Handle(path string, h http.Handler) { s.mux.Handle(path, h) }
+// SetRoutes replaces the handler for every request that starts after it
+// returns. Requests already in progress finish on the previous handler.
+func (s *Server) SetRoutes(h http.Handler) { s.routes.Store(&h) }
+
+func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	(*s.routes.Load()).ServeHTTP(w, r)
+}
 
 // SetReady flips the readiness probe.
 func (s *Server) SetReady(v bool) { s.ready.Store(v) }
-
-// Handler exposes the mux for tests.
-func (s *Server) Handler() http.Handler { return s.mux }
 
 // ListenAndServe blocks until the listener closes.
 func (s *Server) ListenAndServe() error {

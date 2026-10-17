@@ -5,18 +5,29 @@ package relay
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/wyrd-company/trowel/internal/config"
 	"github.com/wyrd-company/trowel/internal/message"
 	"github.com/wyrd-company/trowel/internal/signing"
+	"github.com/wyrd-company/trowel/internal/telemetry"
 )
 
 // Destination delivers one message. A returned error triggers a retry.
@@ -41,6 +52,10 @@ type HTTPDestination struct {
 	client *http.Client
 	signer signing.Signer
 	now    func() time.Time
+	// safeURL names the destination in errors, which reach logs,
+	// dead-letter headers, and spans: the display URL when the config has
+	// one, otherwise the redacted URL.
+	safeURL string
 }
 
 func newHTTPDestination(cfg *config.HTTP) (*HTTPDestination, error) {
@@ -48,20 +63,38 @@ func newHTTPDestination(cfg *config.HTTP) (*HTTPDestination, error) {
 	if err != nil {
 		return nil, err
 	}
+	safe := cfg.DisplayURL
+	if safe == "" {
+		safe = telemetry.RedactURL(cfg.URL)
+	}
+	// The client instrumentation records url.full without userinfo.
+	configured := cfg.URL
+	if u, err := url.Parse(cfg.URL); err == nil {
+		u.User = nil
+		configured = u.String()
+	}
+	display := func(u string) string {
+		if u == configured {
+			return safe
+		}
+		return telemetry.RedactURL(u)
+	}
 	return &HTTPDestination{
-		cfg:    *cfg,
-		client: &http.Client{Timeout: cfg.Timeout},
-		signer: s,
-		now:    time.Now,
+		cfg: *cfg,
+		client: &http.Client{Timeout: cfg.Timeout, Transport: otelhttp.NewTransport(http.DefaultTransport,
+			otelhttp.WithTracerProvider(telemetry.RedactingTracerProvider(display)))},
+		signer:  s,
+		now:     time.Now,
+		safeURL: safe,
 	}, nil
 }
 
-// Deliver sends the payload with relayed headers, static headers, and the
-// signature. Any non-2xx status is an error.
+// Deliver sends the payload with relayed headers, static headers, the
+// signature, and the trace context of ctx. Any non-2xx status is an error.
 func (d *HTTPDestination) Deliver(ctx context.Context, m *message.Message) error {
 	req, err := http.NewRequestWithContext(ctx, d.cfg.Method, d.cfg.URL, bytes.NewReader(m.Payload))
 	if err != nil {
-		return err
+		return d.redact(err)
 	}
 	for k, vals := range message.CopyHeaders(m.Headers) {
 		req.Header[k] = append([]string(nil), vals...)
@@ -75,14 +108,47 @@ func (d *HTTPDestination) Deliver(ctx context.Context, m *message.Message) error
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		return d.redact(err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("http %s %s: status %d", d.cfg.Method, d.cfg.URL, resp.StatusCode)
+		return fmt.Errorf("http %s %s: status %d", d.cfg.Method, d.safeURL, resp.StatusCode)
 	}
 	return nil
+}
+
+// redact names the destination by its safe URL in an error that carries
+// the URL, and keeps the cause only when it cannot quote a URL.
+func (d *HTTPDestination) redact(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return &url.Error{Op: ue.Op, URL: d.safeURL, Err: safeCause(ue.Err)}
+	}
+	return err
+}
+
+// errCauseWithheld stands in for a request error whose message can quote
+// a URL, such as a failure to parse a redirect's Location header.
+var errCauseWithheld = errors.New("cause withheld because it can contain a URL")
+
+// safeCause returns err when its type is one whose message names at most
+// a host, and errCauseWithheld otherwise.
+func safeCause(err error) error {
+	switch e := err.(type) {
+	case *net.OpError, *net.DNSError, *tls.CertificateVerificationError, tls.RecordHeaderError,
+		x509.UnknownAuthorityError, x509.HostnameError, x509.CertificateInvalidError:
+		return err
+	case net.Error:
+		if e.Timeout() {
+			return err
+		}
+	}
+	switch err {
+	case context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF:
+		return err
+	}
+	return errCauseWithheld
 }
 
 // CommandDestination runs a child process with the payload on stdin and
@@ -106,7 +172,7 @@ func (d *CommandDestination) Deliver(ctx context.Context, m *message.Message) er
 	cmd := exec.CommandContext(ctx, d.cfg.Argv[0], d.cfg.Argv[1:]...)
 	cmd.Dir = d.cfg.Dir
 	cmd.Stdin = bytes.NewReader(m.Payload)
-	cmd.Env = d.env(m)
+	cmd.Env = d.env(ctx, m)
 	var stdout, stderr limitedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -125,7 +191,12 @@ func (d *CommandDestination) Deliver(ctx context.Context, m *message.Message) er
 	return nil
 }
 
-func (d *CommandDestination) env(m *message.Message) []string {
+// env is the process environment, the configured variables, the subject,
+// the prefixed headers, and the trace context of ctx as TRACEPARENT,
+// TRACESTATE, and BAGGAGE. Those three come only from ctx: a value
+// inherited or configured for them is dropped, so it cannot sit beside a
+// trace context it does not belong to.
+func (d *CommandDestination) env(ctx context.Context, m *message.Message) []string {
 	env := os.Environ()
 	for k, v := range d.cfg.Env {
 		env = append(env, k+"="+v)
@@ -133,6 +204,20 @@ func (d *CommandDestination) env(m *message.Message) []string {
 	env = append(env, "RELAY_SUBJECT="+m.Subject)
 	for k, vals := range message.CopyHeaders(m.Headers) {
 		env = append(env, d.cfg.EnvPrefix+envName(k)+"="+strings.Join(vals, ", "))
+	}
+	prop := otel.GetTextMapPropagator()
+	owned := map[string]bool{}
+	for _, f := range prop.Fields() {
+		owned[envName(f)] = true
+	}
+	env = slices.DeleteFunc(env, func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return owned[name]
+	})
+	carrier := propagation.MapCarrier{}
+	prop.Inject(ctx, carrier)
+	for k, v := range carrier {
+		env = append(env, envName(k)+"="+v)
 	}
 	return env
 }
