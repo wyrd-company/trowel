@@ -94,7 +94,7 @@ docker run -d --name trowel \
 
 The image runs as an unprivileged `trowel` user, reads
 `/config/config.yml`, and has a health check on `/readyz`. Tags are the
-release version, `major.minor`, `latest`, and `edge` for the newest `main`.
+release version, `major.minor`, and `latest`, all from release tags.
 
 The repository's `docker-compose.yml` starts a JetStream-enabled NATS server,
 creates the stream the example configuration expects, and runs Trowel:
