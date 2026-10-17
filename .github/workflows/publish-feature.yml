@@ -1,0 +1,71 @@
+name: Publish devcontainer Feature
+
+# Runs after each successful Release, whose tag carries the version intentional
+# wrote into devcontainer-feature.json. Dispatch it by hand to republish the
+# Feature from an existing release tag.
+on:
+  workflow_run:
+    workflows:
+      - Release
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Bare stable SemVer release whose Feature must publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Validate release tag and Feature version
+        shell: bash
+        env:
+          FEATURE_TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$FEATURE_TAG" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          then
+          echo "Feature release tags must be bare stable SemVer values." >&2
+          exit 1
+          fi
+
+      - name: Check out release
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.tag }}
+          persist-credentials: false
+
+      - name: Require the Feature version to match the release
+        shell: bash
+        env:
+          FEATURE_TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version features/src/trowel/devcontainer-feature.json)"
+          if [[ "$version" != "$FEATURE_TAG" ]]
+          then
+          echo "devcontainer-feature.json is $version, release is $FEATURE_TAG." >&2
+          exit 1
+          fi
+
+      - name: Publish devcontainer Feature
+        uses: devcontainers/action@v1
+        with:
+          publish-features: "true"
+          base-path-to-features: ./features/src
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

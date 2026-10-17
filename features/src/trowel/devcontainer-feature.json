@@ -1,0 +1,33 @@
+{
+  "id": "trowel",
+  "version": "0.0.0",
+  "name": "Trowel",
+  "documentationURL": "https://wyrd.foo/docs/trowel/devcontainer",
+  "description": "Installs Trowel, a webhook and NATS JetStream relay, and runs it as an s6-overlay service.",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Trowel release to install, such as `0.1.0`. `latest` installs the newest stable release."
+    },
+    "listen": {
+      "type": "string",
+      "default": "127.0.0.1:8080",
+      "description": "Address the starter configuration serves webhooks, `/healthz`, and `/readyz` on."
+    },
+    "natsUrl": {
+      "type": "string",
+      "default": "nats://127.0.0.1:4222",
+      "description": "NATS server URL written to the starter configuration."
+    },
+    "serviceUser": {
+      "type": "string",
+      "default": "automatic",
+      "description": "User account that runs Trowel. Automatic selection prefers the remote user, container user, `vscode`, then `root`."
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/wyrd-company/devcontainers/openbao-agent"
+  ]
+}

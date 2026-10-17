@@ -1,0 +1,19 @@
+{
+  "trowel-options": {
+    "image": "ghcr.io/wyrd-company/devcontainers/base:noble",
+    "features": {
+      "trowel": {
+        "listen": "0.0.0.0:9090",
+        "natsUrl": "nats://sample-nats.example.test:4222",
+        "serviceUser": "root"
+      }
+    }
+  },
+  "trowel-openbao-agent": {
+    "image": "ghcr.io/wyrd-company/devcontainers/base:noble",
+    "features": {
+      "ghcr.io/wyrd-company/devcontainers/openbao-agent:2": {},
+      "trowel": {}
+    }
+  }
+}
