@@ -1,6 +1,6 @@
 {
   "id": "trowel",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "name": "Trowel",
   "documentationURL": "https://wyrd.foo/docs/trowel/devcontainer",
   "description": "Installs Trowel, a webhook and NATS JetStream relay, and runs it as an s6-overlay service.",
