@@ -104,9 +104,11 @@ If no `dlq_subject` is set the message is terminated and logged.
 
 Logs, `Relay-Error` headers, and spans name the destination by its URL as
 written in the configuration. Each `${NAME}` reference stays as written
-unless `show` lists it, and any userinfo reads `REDACTED`. A URL written
-without references keeps only its scheme, host, and port there, because
-Trowel cannot tell which part is secret.
+unless `show` lists it. Userinfo reads `REDACTED:REDACTED`, which needs the
+scheme, `://`, and `@` written literally; a URL whose userinfo a reference
+could hide or move is named like a URL without references. Such a URL keeps
+only its scheme, host, and port, because Trowel cannot tell which part is
+secret.
 
 ```yaml
 http:
