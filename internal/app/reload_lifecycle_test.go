@@ -129,6 +129,21 @@ func TestActivateDeliversNothingWhenConsumeFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.workers = append(g.workers, unprepared...)
+	cons, err := e.js.Consumer(ctx, "EVENTS", "relay-backlog-api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.beforeConsume = func(i int) {
+		if i == 0 {
+			return
+		}
+		// The candidate has received messages before the late failure.
+		waitFor(t, func() bool {
+			info, err := cons.Info(ctx)
+			return err == nil && info.Delivered.Consumer > 0
+		})
+		time.Sleep(200 * time.Millisecond)
+	}
 	if err := g.activate(); err == nil {
 		t.Fatal("activate succeeded with an unprepared worker")
 	}
@@ -136,11 +151,11 @@ func TestActivateDeliversNothingWhenConsumeFails(t *testing.T) {
 	if n := delivered.Load(); n != 0 {
 		t.Errorf("rejected generation delivered %d messages", n)
 	}
-	cons, err := e.js.Consumer(ctx, "EVENTS", "relay-backlog-api")
+	info, err := cons.Info(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if acked := cons.CachedInfo().AckFloor.Consumer; acked != 0 {
+	if acked := info.AckFloor.Consumer; acked != 0 {
 		t.Errorf("rejected consumer acknowledged %d messages", acked)
 	}
 }

@@ -70,6 +70,10 @@ type generation struct {
 	active  int
 	retired bool
 	idle    chan struct{}
+
+	// beforeConsume, when set, runs before each worker subscribes. Tests
+	// use it to fail activation after an earlier worker holds messages.
+	beforeConsume func(i int)
 }
 
 // build constructs a generation for cfg on conn. It starts nothing.
@@ -137,6 +141,9 @@ func (g *generation) prepare(ctx context.Context) error {
 // and stop.
 func (g *generation) activate() error {
 	for i, w := range g.workers {
+		if g.beforeConsume != nil {
+			g.beforeConsume(i)
+		}
 		if err := w.Consume(); err != nil {
 			for _, started := range g.workers[:i] {
 				started.Refuse()
