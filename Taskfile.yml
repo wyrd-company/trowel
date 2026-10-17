@@ -2,8 +2,8 @@ version: "3"
 
 vars:
   VERSION: '{{.VERSION | default "dev"}}'
-  IMAGE: ghcr.io/wyrd-company/nats-webhook-relay
-  LDFLAGS: -s -w -X github.com/wyrd-company/nats-webhook-relay/internal/app.Version={{.VERSION}}
+  IMAGE: ghcr.io/wyrd-company/trowel
+  LDFLAGS: -s -w -X github.com/wyrd-company/trowel/internal/app.Version={{.VERSION}}
 
 tasks:
   default:
@@ -30,14 +30,14 @@ tasks:
   build:
     desc: Build the binary into bin/
     cmds:
-      - CGO_ENABLED=0 go build -trimpath -ldflags="{{.LDFLAGS}}" -o bin/nats-webhook-relay ./cmd/nats-webhook-relay
+      - CGO_ENABLED=0 go build -trimpath -ldflags="{{.LDFLAGS}}" -o bin/trowel ./cmd/trowel
 
   validate:
     desc: Validate a config file (CONFIG=path)
     vars:
       CONFIG: '{{.CONFIG | default "config.example.yml"}}'
     cmds:
-      - go run ./cmd/nats-webhook-relay -config {{.CONFIG}} -validate
+      - go run ./cmd/trowel -config {{.CONFIG}} -validate
 
   docker:build:
     desc: Build the container image

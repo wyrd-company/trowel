@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
+	"github.com/wyrd-company/trowel/internal/config"
 )
 
 func TestRetryDelay(t *testing.T) {

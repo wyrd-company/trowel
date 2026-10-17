@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
-	"github.com/wyrd-company/nats-webhook-relay/internal/message"
-	"github.com/wyrd-company/nats-webhook-relay/internal/signing"
+	"github.com/wyrd-company/trowel/internal/config"
+	"github.com/wyrd-company/trowel/internal/message"
+	"github.com/wyrd-company/trowel/internal/signing"
 )
 
 // Destination delivers one message. A returned error triggers a retry.

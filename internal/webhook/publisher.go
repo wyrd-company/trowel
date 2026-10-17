@@ -6,7 +6,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/message"
+	"github.com/wyrd-company/trowel/internal/message"
 )
 
 // JetStreamPublisher publishes with a stream acknowledgement.

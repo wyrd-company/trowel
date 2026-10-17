@@ -28,12 +28,12 @@ services:
         nats --server nats://nats:4222 stream add EVENTS
         --subjects "github.>,dlq.>" --defaults
 
-  nats-webhook-relay:
-    image: ghcr.io/wyrd-company/nats-webhook-relay:${NATS_RELAY_VERSION:-dev}
+  trowel:
+    image: ghcr.io/wyrd-company/trowel:${TROWEL_VERSION:-dev}
     build:
       context: .
       args:
-        VERSION: ${NATS_RELAY_VERSION:-dev}
+        VERSION: ${TROWEL_VERSION:-dev}
     depends_on:
       nats:
         condition: service_healthy
@@ -41,13 +41,13 @@ services:
         condition: service_completed_successfully
     environment:
       NATS_URL: nats://nats:4222
-      NATS_RELAY_LOG_LEVEL: ${NATS_RELAY_LOG_LEVEL:-info}
+      TROWEL_LOG_LEVEL: ${TROWEL_LOG_LEVEL:-info}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-change-me}
       DEPLOY_HMAC_SECRET: ${DEPLOY_HMAC_SECRET:-change-me-too}
     volumes:
-      - ${NATS_RELAY_CONFIG:-./config.example.yml}:/config/config.yml:ro
+      - ${TROWEL_CONFIG:-./config.example.yml}:/config/config.yml:ro
     ports:
-      - "${NATS_RELAY_PORT:-8080}:8080"
+      - "${TROWEL_PORT:-8080}:8080"
 
 volumes:
   nats-data:

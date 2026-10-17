@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
-	"github.com/wyrd-company/nats-webhook-relay/internal/message"
+	"github.com/wyrd-company/trowel/internal/config"
+	"github.com/wyrd-company/trowel/internal/message"
 )
 
 type fakePublisher struct {

@@ -14,9 +14,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
-	"github.com/wyrd-company/nats-webhook-relay/internal/message"
-	"github.com/wyrd-company/nats-webhook-relay/internal/transform"
+	"github.com/wyrd-company/trowel/internal/config"
+	"github.com/wyrd-company/trowel/internal/message"
+	"github.com/wyrd-company/trowel/internal/transform"
 )
 
 // Worker binds one destination of one subject relay to its own durable

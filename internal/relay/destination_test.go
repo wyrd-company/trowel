@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
-	"github.com/wyrd-company/nats-webhook-relay/internal/message"
+	"github.com/wyrd-company/trowel/internal/config"
+	"github.com/wyrd-company/trowel/internal/message"
 )
 
 func TestHTTPDestination(t *testing.T) {

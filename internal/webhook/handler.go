@@ -10,11 +10,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
-	"github.com/wyrd-company/nats-webhook-relay/internal/message"
-	"github.com/wyrd-company/nats-webhook-relay/internal/signing"
-	"github.com/wyrd-company/nats-webhook-relay/internal/subject"
-	"github.com/wyrd-company/nats-webhook-relay/internal/transform"
+	"github.com/wyrd-company/trowel/internal/config"
+	"github.com/wyrd-company/trowel/internal/message"
+	"github.com/wyrd-company/trowel/internal/signing"
+	"github.com/wyrd-company/trowel/internal/subject"
+	"github.com/wyrd-company/trowel/internal/transform"
 )
 
 // Publisher sends a message to NATS. msgID, when non-empty, is used for

@@ -8,7 +8,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
+	"github.com/wyrd-company/trowel/internal/config"
 )
 
 // Connect dials the server described by cfg with reconnects enabled.

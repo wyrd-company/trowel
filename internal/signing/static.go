@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
+	"github.com/wyrd-company/trowel/internal/config"
 )
 
 type staticStrategy struct {

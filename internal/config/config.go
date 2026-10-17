@@ -215,7 +215,7 @@ func (c *Config) applyDefaults() {
 		c.NATS.URL = DefaultNATSURL
 	}
 	if c.NATS.Name == "" {
-		c.NATS.Name = "nats-webhook-relay"
+		c.NATS.Name = "trowel"
 	}
 	for i := range c.Webhooks {
 		w := &c.Webhooks[i]

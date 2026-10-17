@@ -14,11 +14,11 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/wyrd-company/nats-webhook-relay/internal/config"
-	"github.com/wyrd-company/nats-webhook-relay/internal/natsconn"
-	"github.com/wyrd-company/nats-webhook-relay/internal/relay"
-	"github.com/wyrd-company/nats-webhook-relay/internal/server"
-	"github.com/wyrd-company/nats-webhook-relay/internal/webhook"
+	"github.com/wyrd-company/trowel/internal/config"
+	"github.com/wyrd-company/trowel/internal/natsconn"
+	"github.com/wyrd-company/trowel/internal/relay"
+	"github.com/wyrd-company/trowel/internal/server"
+	"github.com/wyrd-company/trowel/internal/webhook"
 )
 
 // App is a configured, runnable relay.
@@ -96,15 +96,15 @@ func (a *App) Run(ctx context.Context) error {
 
 // Main is the CLI entry point. It returns the process exit code.
 func Main(args []string) int {
-	fs := flag.NewFlagSet("nats-webhook-relay", flag.ContinueOnError)
-	path := fs.String("config", envOr("NATS_RELAY_CONFIG", "config.yml"), "path to the YAML configuration file")
+	fs := flag.NewFlagSet("trowel", flag.ContinueOnError)
+	path := fs.String("config", envOr("TROWEL_CONFIG", "config.yml"), "path to the YAML configuration file")
 	validate := fs.Bool("validate", false, "load and validate the configuration, then exit")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel()}))
 
-	log.Info("nats-webhook-relay starting", "version", Version)
+	log.Info("trowel starting", "version", Version)
 
 	cfg, err := config.Load(*path)
 	if err != nil {
@@ -135,7 +135,7 @@ func envOr(key, def string) string {
 }
 
 func logLevel() slog.Level {
-	switch os.Getenv("NATS_RELAY_LOG_LEVEL") {
+	switch os.Getenv("TROWEL_LOG_LEVEL") {
 	case "debug":
 		return slog.LevelDebug
 	case "warn":
