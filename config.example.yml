@@ -1,6 +1,7 @@
 # trowel example configuration.
 # ${NAME} references are replaced from the environment at load time.
-# Every *_file field reads a mounted secret instead of an inline value.
+# Every secret has three forms: inline, *_file (a mounted file), or *_vault
+# (a field of an OpenBao or Vault KV v2 secret, read once at startup).
 
 server:
   listen: ":8080"
@@ -10,6 +11,24 @@ nats:
   url: ${NATS_URL}
   name: trowel
   # creds_file: /run/secrets/nats.creds
+  # creds_vault: {path: trowel/nats, field: creds}   # contents of a .creds file
+
+# Required only when a *_vault reference is used.
+# vault:
+#   # https://..., http://127.0.0.1:... (loopback only), or a local socket such
+#   # as unix:///run/wyrwood/vault.sock. A socket that injects its own token
+#   # (Wyrwood, OpenBao Agent or Proxy) needs no auth section.
+#   address: https://openbao.example.invalid:8200
+#   # namespace: team-a
+#   # ca_file: /etc/trowel/openbao-ca.pem
+#   kv_mount: secret            # default mount for references without one
+#   timeout: 10s
+#   auth:                       # at most one; omit to send no token
+#     approle:
+#       mount: approle
+#       role_id: ${TROWEL_VAULT_ROLE_ID}
+#       secret_id_file: /run/secrets/openbao-secret-id
+#     # token_file: /run/secrets/openbao-token
 
 # HTTP -> NATS. Each webhook is served at its path and publishes to JetStream.
 # A stream must already cover every subject the template can expand to.
@@ -30,6 +49,7 @@ webhooks:
         encoding: hex
         secret: ${GITHUB_WEBHOOK_SECRET}
         # secret_file: /run/secrets/github-webhook
+        # secret_vault: {path: trowel/github, field: webhook-secret}
     # Optional JSONata. Input is {"headers": {...}, "payload": <json>, "subject": ""}.
     # Header names with '-' need backticks: headers.`X-GitHub-Event`
     transform:

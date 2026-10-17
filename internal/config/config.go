@@ -19,6 +19,7 @@ type Config struct {
 	NATS     NATS           `yaml:"nats"`
 	Webhooks []Webhook      `yaml:"webhooks"`
 	Subjects []SubjectRelay `yaml:"subjects"`
+	Vault    *Vault         `yaml:"vault"`
 }
 
 // Server configures the inbound HTTP listener.
@@ -32,6 +33,44 @@ type NATS struct {
 	URL       string `yaml:"url"`
 	Name      string `yaml:"name"`
 	CredsFile string `yaml:"creds_file"`
+	// CredsVault reads the contents of a NATS credentials file from Vault.
+	CredsVault *VaultRef `yaml:"creds_vault"`
+	// Creds holds credentials resolved from CredsVault. It is never read
+	// from YAML.
+	Creds string `yaml:"-"`
+}
+
+// Vault configures the OpenBao or Vault server that *_vault secret
+// references are read from. Address is an https URL, an http URL on a
+// loopback host, or unix:///absolute/path for a local socket.
+type Vault struct {
+	Address   string        `yaml:"address"`
+	Namespace string        `yaml:"namespace"`
+	CAFile    string        `yaml:"ca_file"`
+	KVMount   string        `yaml:"kv_mount"`
+	Timeout   time.Duration `yaml:"timeout"`
+	Auth      VaultAuth     `yaml:"auth"`
+}
+
+// VaultAuth selects at most one way to obtain a token. With neither set,
+// requests carry no token, which suits a socket or agent that injects one.
+type VaultAuth struct {
+	TokenFile string   `yaml:"token_file"`
+	AppRole   *AppRole `yaml:"approle"`
+}
+
+// AppRole logs in with a role ID and a secret ID read from a file.
+type AppRole struct {
+	Mount        string `yaml:"mount"`
+	RoleID       string `yaml:"role_id"`
+	SecretIDFile string `yaml:"secret_id_file"`
+}
+
+// VaultRef names one field of a KV version 2 secret.
+type VaultRef struct {
+	Mount string `yaml:"mount"`
+	Path  string `yaml:"path"`
+	Field string `yaml:"field"`
 }
 
 // Transform holds optional JSONata expressions. Each expression receives an
@@ -67,12 +106,13 @@ type Sign struct {
 
 // HMAC describes a shared-secret signature over the body.
 type HMAC struct {
-	Algorithm  string `yaml:"algorithm"`
-	Header     string `yaml:"header"`
-	Prefix     string `yaml:"prefix"`
-	Encoding   string `yaml:"encoding"`
-	Secret     string `yaml:"secret"`
-	SecretFile string `yaml:"secret_file"`
+	Algorithm   string    `yaml:"algorithm"`
+	Header      string    `yaml:"header"`
+	Prefix      string    `yaml:"prefix"`
+	Encoding    string    `yaml:"encoding"`
+	Secret      string    `yaml:"secret"`
+	SecretFile  string    `yaml:"secret_file"`
+	SecretVault *VaultRef `yaml:"secret_vault"`
 }
 
 // Ed25519 describes an asymmetric signature over `timestamp.body`.
@@ -83,15 +123,18 @@ type Ed25519 struct {
 	Tolerance       time.Duration `yaml:"tolerance"`
 	PublicKey       string        `yaml:"public_key"`
 	PublicKeyFile   string        `yaml:"public_key_file"`
+	PublicKeyVault  *VaultRef     `yaml:"public_key_vault"`
 	PrivateKey      string        `yaml:"private_key"`
 	PrivateKeyFile  string        `yaml:"private_key_file"`
+	PrivateKeyVault *VaultRef     `yaml:"private_key_vault"`
 }
 
 // Static describes a shared secret sent verbatim in a header.
 type Static struct {
-	Header     string `yaml:"header"`
-	Secret     string `yaml:"secret"`
-	SecretFile string `yaml:"secret_file"`
+	Header      string    `yaml:"header"`
+	Secret      string    `yaml:"secret"`
+	SecretFile  string    `yaml:"secret_file"`
+	SecretVault *VaultRef `yaml:"secret_vault"`
 }
 
 // SubjectRelay consumes a NATS subject and delivers each message to one or
@@ -156,6 +199,9 @@ const (
 	DefaultTolerance         = 5 * time.Minute
 	DefaultEnvPrefix         = "RELAY_HEADER_"
 	DefaultDeliverPolicy     = "all"
+	DefaultVaultKVMount      = "secret"
+	DefaultVaultTimeout      = 10 * time.Second
+	DefaultAppRoleMount      = "approle"
 )
 
 // Load reads, expands, parses, and validates a configuration file.
@@ -216,6 +262,24 @@ func (c *Config) applyDefaults() {
 	}
 	if c.NATS.Name == "" {
 		c.NATS.Name = "trowel"
+	}
+	if v := c.Vault; v != nil {
+		v.Address = strings.TrimRight(v.Address, "/")
+		v.Namespace = strings.Trim(v.Namespace, "/")
+		if v.KVMount == "" {
+			v.KVMount = DefaultVaultKVMount
+		}
+		if v.Timeout == 0 {
+			v.Timeout = DefaultVaultTimeout
+		}
+		if v.Auth.AppRole != nil && v.Auth.AppRole.Mount == "" {
+			v.Auth.AppRole.Mount = DefaultAppRoleMount
+		}
+		for _, r := range c.SecretRefs() {
+			if r.Ref.Mount == "" {
+				r.Ref.Mount = v.KVMount
+			}
+		}
 	}
 	for i := range c.Webhooks {
 		w := &c.Webhooks[i]
@@ -297,6 +361,12 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 func (c *Config) Validate() error {
 	if len(c.Webhooks) == 0 && len(c.Subjects) == 0 {
 		return errors.New("config defines no webhooks and no subjects")
+	}
+	if err := c.validateVault(); err != nil {
+		return err
+	}
+	if c.NATS.CredsFile != "" && c.NATS.CredsVault != nil {
+		return errors.New("nats: set at most one of creds_file or creds_vault")
 	}
 	paths := map[string]bool{}
 	for i, w := range c.Webhooks {
@@ -427,7 +497,7 @@ func validateHMAC(where string, h *HMAC) error {
 	if err := validateEncoding(where, h.Encoding); err != nil {
 		return err
 	}
-	return validateSecret(where, "secret", h.Secret, h.SecretFile)
+	return validateSecret(where, "secret", h.Secret, h.SecretFile, h.SecretVault)
 }
 
 func validateEd25519(where string, e *Ed25519, private bool) error {
@@ -441,9 +511,15 @@ func validateEd25519(where string, e *Ed25519, private bool) error {
 		return err
 	}
 	if private {
-		return validateSecret(where, "private_key", e.PrivateKey, e.PrivateKeyFile)
+		if e.PublicKeyVault != nil {
+			return fmt.Errorf("%s: public_key_vault is not used when signing", where)
+		}
+		return validateSecret(where, "private_key", e.PrivateKey, e.PrivateKeyFile, e.PrivateKeyVault)
 	}
-	return validateSecret(where, "public_key", e.PublicKey, e.PublicKeyFile)
+	if e.PrivateKeyVault != nil {
+		return fmt.Errorf("%s: private_key_vault is not used when verifying", where)
+	}
+	return validateSecret(where, "public_key", e.PublicKey, e.PublicKeyFile, e.PublicKeyVault)
 }
 
 func validateStatic(where string, s *Static) error {
@@ -453,7 +529,7 @@ func validateStatic(where string, s *Static) error {
 	if s.Header == "" {
 		return fmt.Errorf("%s.header: is required", where)
 	}
-	return validateSecret(where, "secret", s.Secret, s.SecretFile)
+	return validateSecret(where, "secret", s.Secret, s.SecretFile, s.SecretVault)
 }
 
 func validateEncoding(where, enc string) error {
@@ -464,9 +540,15 @@ func validateEncoding(where, enc string) error {
 	return fmt.Errorf("%s.encoding: must be hex or base64", where)
 }
 
-func validateSecret(where, field, inline, file string) error {
-	if (inline == "") == (file == "") {
-		return fmt.Errorf("%s: exactly one of %s or %s_file is required", where, field, field)
+func validateSecret(where, field, inline, file string, vault *VaultRef) error {
+	n := 0
+	for _, set := range []bool{inline != "", file != "", vault != nil} {
+		if set {
+			n++
+		}
+	}
+	if n != 1 {
+		return fmt.Errorf("%s: exactly one of %s, %s_file, or %s_vault is required", where, field, field, field)
 	}
 	return nil
 }

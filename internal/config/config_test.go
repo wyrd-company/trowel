@@ -83,3 +83,84 @@ func TestValidateErrors(t *testing.T) {
 		}
 	}
 }
+
+const vaultWebhook = "webhooks:\n  - path: /a\n    subject: a\n    verify:\n      static: {header: X, secret_vault: {path: relay/a, field: token}}\n"
+
+func TestParseVaultReferences(t *testing.T) {
+	raw := vaultWebhook + `
+nats:
+  creds_vault: {mount: nats, path: relay, field: creds}
+vault:
+  address: unix:///run/sample/vault.sock
+  kv_mount: kv/
+`
+	cfg, err := Parse([]byte(raw))
+	if err == nil {
+		t.Fatal("expected kv_mount with a trailing slash to be rejected")
+	}
+	cfg, err = Parse([]byte(strings.Replace(raw, "kv/", "kv", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Vault.Timeout != DefaultVaultTimeout {
+		t.Errorf("vault timeout default not applied: %v", cfg.Vault.Timeout)
+	}
+	refs := cfg.SecretRefs()
+	if len(refs) != 2 {
+		t.Fatalf("got %d refs", len(refs))
+	}
+	if refs[0].Where != "nats.creds_vault" || refs[0].Ref.Mount != "nats" {
+		t.Errorf("explicit mount not kept: %+v", refs[0])
+	}
+	if refs[1].Where != "webhooks[0].verify.static.secret_vault" || refs[1].Ref.Mount != "kv" {
+		t.Errorf("kv_mount default not applied: %+v", refs[1])
+	}
+	*refs[1].Target = "resolved"
+	if cfg.Webhooks[0].Verify.Static.Secret != "resolved" {
+		t.Error("ref target does not point at the inline field")
+	}
+}
+
+func TestVaultAddresses(t *testing.T) {
+	cases := map[string]bool{
+		"https://openbao.example.test:8200": true,
+		"http://127.0.0.1:8200":             true,
+		"http://localhost:8200":             true,
+		"http://[::1]:8200":                 true,
+		"unix:///run/sample/vault.sock":     true,
+		"http://openbao.example.test:8200":  false,
+		"unix://relative/vault.sock":        false,
+		"unix:/run/sample/vault.sock":       false,
+		"tcp://127.0.0.1:8200":              false,
+		"https://user:pass@example.test":    false,
+		"":                                  false,
+	}
+	for addr, ok := range cases {
+		_, err := Parse([]byte(vaultWebhook + "vault: {address: \"" + addr + "\"}\n"))
+		if (err == nil) != ok {
+			t.Errorf("%q: ok=%v, err=%v", addr, ok, err)
+		}
+	}
+}
+
+func TestVaultValidateErrors(t *testing.T) {
+	vault := "vault: {address: \"https://openbao.example.test\"}\n"
+	cases := map[string]string{
+		"no vault section":   vaultWebhook,
+		"inline and vault":   strings.Replace(vaultWebhook, "secret_vault", "secret: s, secret_vault", 1) + vault,
+		"missing field":      strings.Replace(vaultWebhook, ", field: token", "", 1) + vault,
+		"absolute path":      strings.Replace(vaultWebhook, "path: relay/a", "path: /relay/a", 1) + vault,
+		"dot dot path":       strings.Replace(vaultWebhook, "path: relay/a", "path: relay/../a", 1) + vault,
+		"two auth methods":   vaultWebhook + "vault:\n  address: https://openbao.example.test\n  auth: {token_file: /t, approle: {role_id: r, secret_id_file: /s}}\n",
+		"approle no secret":  vaultWebhook + "vault:\n  address: https://openbao.example.test\n  auth: {approle: {role_id: r}}\n",
+		"ca file with unix":  vaultWebhook + "vault: {address: \"unix:///run/v.sock\", ca_file: /ca.pem}\n",
+		"relative ca file":   vaultWebhook + "vault: {address: \"https://openbao.example.test\", ca_file: ca.pem}\n",
+		"creds file and ref": vaultWebhook + vault + "nats: {creds_file: /c, creds_vault: {path: p, field: f}}\n",
+		"private key verify": "webhooks:\n  - path: /a\n    subject: a\n    verify:\n      ed25519: {signature_header: S, timestamp_header: T, public_key: k, private_key_vault: {path: p, field: f}}\n" + vault,
+	}
+	for name, raw := range cases {
+		if _, err := Parse([]byte(raw)); err == nil {
+			t.Errorf("%s: expected error", name)
+		}
+	}
+}

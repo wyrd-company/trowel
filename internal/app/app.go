@@ -18,6 +18,7 @@ import (
 	"github.com/wyrd-company/trowel/internal/natsconn"
 	"github.com/wyrd-company/trowel/internal/relay"
 	"github.com/wyrd-company/trowel/internal/server"
+	"github.com/wyrd-company/trowel/internal/vault"
 	"github.com/wyrd-company/trowel/internal/webhook"
 )
 
@@ -114,6 +115,10 @@ func Main(args []string) int {
 	if *validate {
 		log.Info("config valid", "path", *path, "webhooks", len(cfg.Webhooks), "subjects", len(cfg.Subjects))
 		return 0
+	}
+	if err := vault.Resolve(context.Background(), cfg, log); err != nil {
+		log.Error("resolve vault secrets", "error", err)
+		return 1
 	}
 	a, err := New(cfg, log)
 	if err != nil {
