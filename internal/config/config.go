@@ -224,18 +224,17 @@ func Parse(raw []byte) (*Config, error) {
 	}
 	var cfg Config
 	if doc.Kind != 0 {
-		templates := urlTemplates(&doc)
+		templates, err := urlTemplates(&doc)
+		if err != nil {
+			return nil, fmt.Errorf("parse config: %w", err)
+		}
 		if err := expandNode(&doc); err != nil {
 			return nil, err
 		}
 		if err := decodeStrict(&doc, &cfg); err != nil {
 			return nil, fmt.Errorf("parse config: %w", err)
 		}
-		for k, t := range templates {
-			if h := cfg.Subjects[k[0]].Destinations[k[1]].HTTP; h != nil {
-				h.Template = t
-			}
-		}
+		cfg.setTemplates(templates)
 	}
 	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -322,7 +321,7 @@ func (c *Config) applyDefaults() {
 				if d.HTTP.Timeout == 0 {
 					d.HTTP.Timeout = DefaultHTTPTimeout
 				}
-				d.HTTP.DisplayURL = displayURL(d.HTTP.Template, d.HTTP.Show)
+				d.HTTP.DisplayURL = displayURL(d.HTTP.Template, d.HTTP.URL, d.HTTP.Show)
 				if d.HTTP.Sign != nil {
 					applyHMACDefaults(d.HTTP.Sign.HMAC)
 					applyEd25519Defaults(d.HTTP.Sign.Ed25519)

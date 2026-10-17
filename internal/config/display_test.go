@@ -51,3 +51,84 @@ func TestShowMustNameAReference(t *testing.T) {
 		t.Errorf("err %v, want show rejected", err)
 	}
 }
+
+// TestDisplayURLFollowsDecoding covers YAML shapes where the written
+// document and the decoded config differ: null entries, which decoding
+// skips, and anchors, aliases, merge keys, and flow style.
+func TestDisplayURLFollowsDecoding(t *testing.T) {
+	t.Setenv("TEST_HOST", "api.example.test")
+	t.Setenv("TEST_TOKEN", "s3cret-token")
+	const want = "https://api.example.test/${TEST_TOKEN}"
+	cases := map[string]string{
+		"null subject": `subjects:
+  - null
+  - name: s
+    subject: s
+    destinations: [{name: d, http: {url: "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}]
+`,
+		"null destination": `subjects:
+  - name: s
+    subject: s
+    destinations:
+      - null
+      - {name: d, http: {url: "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}
+`,
+		"http alias": `subjects:
+  - name: s
+    subject: s
+    destinations:
+      - {name: a, http: &endpoint {url: "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}
+      - {name: d, http: *endpoint}
+`,
+		"merge key": `subjects:
+  - name: s
+    subject: s
+    destinations:
+      - {name: a, http: &endpoint {url: "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}
+      - name: d
+        http:
+          <<: *endpoint
+          timeout: 5s
+`,
+		"scalar alias": `subjects:
+  - name: s
+    subject: s
+    destinations:
+      - {name: a, http: {url: &u "https://${TEST_HOST}/${TEST_TOKEN}", show: [TEST_HOST]}}
+      - {name: d, http: {url: *u, show: [TEST_HOST]}}
+`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Parse([]byte(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dests := cfg.Subjects[len(cfg.Subjects)-1].Destinations
+			if got := dests[len(dests)-1].HTTP.DisplayURL; got != want {
+				t.Errorf("display %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestDisplayURLNeverShowsUserinfo builds URLs whose userinfo the display
+// template cannot locate, and expects full redaction instead.
+func TestDisplayURLNeverShowsUserinfo(t *testing.T) {
+	t.Setenv("TEST_PREFIX", "http://")
+	t.Setenv("TEST_SLASHES", "//")
+	t.Setenv("TEST_CREDS", "generic-user:s3cret-pass")
+	cases := map[string]struct{ url, show string }{
+		"shown creds after unshown scheme":    {"${TEST_PREFIX}${TEST_CREDS}@example.test/path", "          show: [TEST_CREDS]\n"},
+		"literal creds after unshown scheme":  {"${TEST_PREFIX}generic-user:s3cret-pass@example.test/path", ""},
+		"literal creds after unshown slashes": {"https:${TEST_SLASHES}generic-user:s3cret-pass@example.test/path", ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := displayOf(t, c.url, c.show)
+			if strings.Contains(got, "s3cret") || strings.Contains(got, "generic-user") {
+				t.Errorf("display %q shows userinfo", got)
+			}
+		})
+	}
+}

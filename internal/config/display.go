@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -9,52 +10,59 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// urlTemplates returns the text of every subjects[i].destinations[j].http.url
-// value as written, before ${NAME} expansion, keyed by [i, j].
-func urlTemplates(doc *yaml.Node) map[[2]int]string {
-	out := map[[2]int]string{}
-	root := doc
-	if root.Kind == yaml.DocumentNode && len(root.Content) == 1 {
-		root = root.Content[0]
+// urlShadow mirrors the path to every HTTP destination URL, so decoding
+// the unexpanded document with it applies the same null, alias, and merge
+// rules as decoding Config and yields the URLs as written.
+type urlShadow struct {
+	Subjects []struct {
+		Destinations []struct {
+			HTTP *struct {
+				URL string `yaml:"url"`
+			} `yaml:"http"`
+		} `yaml:"destinations"`
+	} `yaml:"subjects"`
+}
+
+// urlTemplates decodes the URLs as written from doc, before ${NAME}
+// expansion.
+func urlTemplates(doc *yaml.Node) (urlShadow, error) {
+	var s urlShadow
+	err := doc.Decode(&s)
+	return s, err
+}
+
+// setTemplates copies the URLs as written onto cfg's HTTP destinations.
+// A shape that does not line up with cfg sets nothing, which leaves those
+// URLs fully redacted.
+func (c *Config) setTemplates(s urlShadow) {
+	if len(s.Subjects) != len(c.Subjects) {
+		return
 	}
-	subjects := mapValue(root, "subjects")
-	if subjects == nil || subjects.Kind != yaml.SequenceNode {
-		return out
-	}
-	for i, s := range subjects.Content {
-		dests := mapValue(s, "destinations")
-		if dests == nil || dests.Kind != yaml.SequenceNode {
+	for i, sub := range s.Subjects {
+		dests := c.Subjects[i].Destinations
+		if len(sub.Destinations) != len(dests) {
 			continue
 		}
-		for j, d := range dests.Content {
-			if u := mapValue(mapValue(d, "http"), "url"); u != nil && u.Kind == yaml.ScalarNode {
-				out[[2]int{i, j}] = u.Value
+		for j, d := range sub.Destinations {
+			if d.HTTP != nil && dests[j].HTTP != nil {
+				dests[j].HTTP.Template = d.HTTP.URL
 			}
 		}
 	}
-	return out
-}
-
-// mapValue returns the value under key in a mapping node, or nil.
-func mapValue(n *yaml.Node, key string) *yaml.Node {
-	if n == nil || n.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		if n.Content[i].Value == key {
-			return n.Content[i+1]
-		}
-	}
-	return nil
 }
 
 // displayURL names an HTTP destination in logs, dead-letter headers, and
 // spans. It is the URL as written, with each ${NAME} that show lists
 // expanded and every other reference left as written, and its userinfo
-// replaced. A URL without references has no display form, so the caller
-// redacts it fully.
-func displayURL(template string, show []string) string {
+// replaced. It is empty, so the caller redacts the URL fully, when the URL
+// has no references, when expanded does not parse, or when the userinfo of
+// expanded would still show.
+func displayURL(template, expanded string, show []string) string {
 	if !envRef.MatchString(template) {
+		return ""
+	}
+	u, err := url.Parse(expanded)
+	if err != nil {
 		return ""
 	}
 	shown := envRef.ReplaceAllStringFunc(template, func(ref string) string {
@@ -64,7 +72,16 @@ func displayURL(template string, show []string) string {
 		}
 		return ref
 	})
-	return redactUserinfo(shown)
+	shown = redactUserinfo(shown)
+	if u.User != nil {
+		pass, _ := u.User.Password()
+		for _, part := range []string{u.User.Username(), pass} {
+			if part != "" && strings.Contains(shown, part) {
+				return ""
+			}
+		}
+	}
+	return shown
 }
 
 // redactUserinfo replaces anything between the scheme and an @ in the
