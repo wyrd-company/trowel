@@ -57,11 +57,13 @@ A reload builds the new configuration while the current one keeps serving:
 
 1. Load and validate the file, and read every `*_vault` reference.
 2. Connect to NATS again only if the `nats` section changed.
-3. Build every webhook and destination, then create or update each consumer
-   and start consuming.
+3. Build every webhook and destination, and create or update each consumer.
+   Only when every consumer succeeds do the new consumers start taking
+   messages, so a configuration that fails here delivers nothing.
 4. Route new webhook requests to the new configuration.
-5. Let the replaced consumers finish the deliveries they hold, then stop
-   them, and drain the replaced NATS connection.
+5. Stop the replaced consumers taking messages, and let them finish the
+   deliveries they hold while replaced webhook requests finish. A replaced
+   NATS connection is drained once no configuration still uses it.
 
 If any of steps 1 to 3 fails, Trowel logs `config reload failed; keeping
 current configuration` with the reason and keeps the current configuration.
@@ -73,7 +75,7 @@ Some changes still need a restart:
 - `${NAME}` references read the environment Trowel started with.
 
 When step 3 fails after it updated some consumers, those consumers keep their
-new settings on the NATS server. A consumer for a removed relay or
+new settings on the NATS server, although no message was taken from them. A consumer for a removed relay or
 destination stays on the server; delete it with `nats consumer rm`.
 
 ## Logs
@@ -82,8 +84,8 @@ Logs are JSON lines on stderr. Delivery failures log the subject, the
 destination, the attempt, and the reason. An HTTP destination's URL in a
 failure reason, a `Relay-Error` header, or a span keeps only its scheme,
 host, and port; the userinfo, the path, and each query value read
-`REDACTED`, since any of them can carry a credential. Records about a traced message
-also carry `trace_id` and `span_id`. A command destination's stdout is
+`REDACTED`, since any of them can carry a credential. Records about a
+traced message also carry `trace_id` and `span_id`. A command destination's stdout is
 logged on success, and its stderr is part of the failure reason.
 
 ## Telemetry
