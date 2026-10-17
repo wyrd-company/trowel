@@ -1,8 +1,9 @@
 name: Publish image
 
+# Images publish only from release tags. Dispatch it on a release tag to
+# republish that release's image.
 on:
   push:
-    branches: [ main ]
     tags:
       - "*.*.*"
   workflow_dispatch: {}
@@ -27,11 +28,10 @@ jobs:
       packages: write
     steps:
       - name: Validate stable release tag
-        if: github.ref_type == 'tag'
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          if [[ "$GITHUB_REF_TYPE" != tag || ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           then
           echo "Release tags must be bare stable SemVer values." >&2
           exit 1
@@ -56,9 +56,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
-            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha
+            type=raw,value=latest
 
       - uses: docker/build-push-action@v6
         with:
@@ -68,6 +66,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('edge-{0}', github.sha) }}
+            VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

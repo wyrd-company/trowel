@@ -65,7 +65,7 @@ Feature tests need Docker and the [devcontainer CLI](https://github.com/devconta
 Pushing a release tag:
 
 1. Proves the pinned [repo.wyrd.foo](https://github.com/wyrd-company/repo.wyrd.foo) publisher contract, then creates the GitHub release with archives, DEB and RPM packages, `checksums.txt`, and notes from `CHANGELOG.md`.
-2. Publishes the multi-arch image as `:<version>`, `:<major>.<minor>`, and `:latest`. Pushes to `main` publish `:edge`.
+2. Publishes the multi-arch image as `:<version>`, `:<major>.<minor>`, and `:latest`. Nothing publishes from `main` alone.
 3. After the release succeeds, submits the release manifest to repo.wyrd.foo, publishes `docs/` to wyrd.foo, and publishes the devcontainer Feature.
 
 `REPO_WYRD_FOO_PUBLISHER_COMMIT` in `.github/workflows/release.yml` pins the repo.wyrd.foo commit whose publisher contract and `config/products.json` each release is checked against. Move it when repo.wyrd.foo changes that contract or trowel's allowlist entry.
