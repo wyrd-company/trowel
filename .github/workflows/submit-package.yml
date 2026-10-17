@@ -110,7 +110,7 @@ jobs:
           echo "Verified retained package handoff for $release_version."
 
       - name: Submit package release
-        uses: wyrd-company/repo.wyrd.foo/.github/actions/submit-release@0e0d0e934e1a0f6f34550ed9ee28717623614b8c
+        uses: wyrd-company/repo.wyrd.foo/.github/actions/submit-release@8116eaa4bb3730530b4cef5b6f1cb9bab24c81e9
         with:
           manifest: handoff/release-manifest.json
           # The pinned action accepts a numeric App ID through this input.
