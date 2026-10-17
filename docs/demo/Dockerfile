@@ -14,7 +14,12 @@ FROM nats:2.11-alpine AS nats
 FROM natsio/nats-box:latest AS nats-box
 
 FROM ghcr.io/charmbracelet/vhs:v0.10.0
-RUN apt-get update \
+# The image is bookworm but its sources track "stable", which moved on, so
+# pin them to the image's own release before installing.
+RUN sed -i -e 's/^Suites: stable stable-updates$/Suites: bookworm bookworm-updates/' \
+        -e 's/^Suites: stable-security$/Suites: bookworm-security/' \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends curl jq openssl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/trowel /usr/local/bin/trowel
