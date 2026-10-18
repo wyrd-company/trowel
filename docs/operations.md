@@ -135,6 +135,20 @@ destinations receive it in the `TRACEPARENT`, `TRACESTATE`, and `BAGGAGE`
 environment variables, which replace any value Trowel inherited or the
 destination's `env` sets for them.
 
+### Central and satellite instances
+
+A central instance can receive webhooks and publish to JetStream while
+satellite instances deliver those messages to local processors. The central
+`send` span writes its trace context into the NATS message headers. Each
+satellite extracts that context, so its `process` span is a child of the
+central `send` span in the same trace. Its HTTP client span and the
+`traceparent` received by its HTTP destination continue that trace.
+
+Give each satellite a distinct relay or destination name so that it has its
+own durable consumer. Those consumers each receive the message and branch
+from the same central `send` span. Export the instances' traces to the same
+telemetry backend to view them together.
+
 ### Metrics
 
 | Metric | Attributes |
