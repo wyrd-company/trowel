@@ -37,3 +37,7 @@ dist/
 
 # CI-built binary the devcontainer Feature tests install
 features/src/trowel/ci-binary/
+
+# Python bytecode
+__pycache__/
+*.pyc
