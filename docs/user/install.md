@@ -1,7 +1,7 @@
 ---
 title: Installation
+product: trowel
 order: 2
-docs: true
 install: true
 ---
 

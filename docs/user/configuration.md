@@ -1,7 +1,7 @@
 ---
 title: Configuration
+product: trowel
 order: 3
-docs: true
 ---
 
 Trowel reads one YAML file, given by `-config` or `TROWEL_CONFIG`. Unknown

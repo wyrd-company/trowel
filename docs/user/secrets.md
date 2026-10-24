@@ -1,7 +1,7 @@
 ---
 title: Secrets
+product: trowel
 order: 4
-docs: true
 ---
 
 Every secret in the configuration takes one of three forms. Exactly one must

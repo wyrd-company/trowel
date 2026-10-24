@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://wyrd.foo/schemas/docs/v1.json
+schemaVersion: 1
+assets:
+  - assets/demo.gif
+  - assets/favicon.svg
+  - assets/icon-dark.svg
+  - assets/icon-light.svg
+products:
+  trowel:
+    name: trowel
+    version: 0.2.0
+    docs-version: 0.1.0
+    tagline: Relay webhooks into NATS JetStream, and JetStream messages back out.
+    blurb: >-
+      A small Go service that verifies and transforms incoming webhooks, publishes
+      them to JetStream with an acknowledgement, and delivers JetStream messages to
+      HTTP endpoints or commands with retries, signing, and dead-lettering. Secrets
+      can come from OpenBao or Vault over https or a unix socket.
+    status: preview
+    category: Agent Infrastructure
+    order: 8
+    logo: assets/icon-light.svg
+    logo-dark: assets/icon-dark.svg
+    favicon: assets/favicon.svg
+    highlights:
+      - Accepts webhooks, verifies them with HMAC, Ed25519 or a static token, and answers 202 only after JetStream acknowledges the publish.
+      - Reshapes headers and payload with JSONata and expands a subject template for each message.
+      - Delivers JetStream messages to an HTTP endpoint, signed if you like, or to a command on stdin.
+      - Keeps one durable consumer per destination, retries failed deliveries, and dead-letters them to a subject when attempts run out.
+      - Reads secrets inline, from files, or from OpenBao or Vault, and reloads the configuration and every secret without a restart.
+      - Exports OpenTelemetry traces, metrics and logs, with one trace following each webhook to every destination.
+    media:
+      - src: assets/demo.gif
+        caption: A signed webhook is accepted, published to JetStream and delivered to a command, while a forged one is rejected.
+    kinds:
+      - kind: app
+        install:
+          - method: apt
+            os: [linux]
+            default: true
+            command: sudo apt install trowel
+          - method: rpm
+            os: [linux]
+            command: sudo dnf install trowel
+          - method: aur
+            os: [linux]
+            command: paru -S trowel-bin
+          - method: docker
+            command: docker pull ghcr.io/wyrd-company/trowel:latest
+      - kind: devcontainer-feature
+        ref: ghcr.io/wyrd-company/trowel/trowel:1

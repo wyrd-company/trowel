@@ -1,7 +1,7 @@
 ---
 title: Operations
+product: trowel
 order: 6
-docs: true
 ---
 
 ## Command line

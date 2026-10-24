@@ -1,7 +1,7 @@
 ---
 title: Overview
+product: trowel
 order: 1
-docs: true
 ---
 
 Trowel bridges HTTP webhooks and NATS JetStream in both directions. One

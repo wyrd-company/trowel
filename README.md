@@ -1,13 +1,13 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/icon-dark.svg">
-    <img src="docs/assets/icon-light.svg" alt="Trowel icon" width="160">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/user/assets/icon-dark.svg">
+    <img src="docs/user/assets/icon-light.svg" alt="Trowel icon" width="160">
   </picture>
 </p>
 
 # Trowel
 
-A small Go service that bridges HTTP webhooks and NATS JetStream in both directions. Documentation lives at [wyrd.foo/docs/trowel](https://wyrd.foo/docs/trowel), published from [`docs/`](docs).
+A small Go service that bridges HTTP webhooks and NATS JetStream in both directions. Documentation lives at [wyrd.foo/docs/trowel](https://wyrd.foo/docs/trowel), published from [`docs/user/`](docs/user).
 
 - **Webhook → NATS**: accepts `POST` requests on configured paths, verifies them, optionally transforms headers and payload with JSONata, expands a subject template, and publishes to JetStream with a stream acknowledgement.
 - **NATS → HTTP or command**: consumes JetStream subjects with a durable consumer per destination, optionally transforms, then delivers to an HTTP endpoint (with optional signing) or to a child process. Failed deliveries retry per the consumer settings and dead-letter to a subject when attempts run out.
@@ -36,20 +36,20 @@ Flags and environment:
 | `-config`, `TROWEL_CONFIG` | Path to the YAML config | `config.yml` |
 | `-validate` | Load and validate the config, then exit | |
 | `TROWEL_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
-| `OTEL_*` | OpenTelemetry traces, metrics, and logs, such as `OTEL_EXPORTER_OTLP_ENDPOINT`. See [`docs/operations.md`](docs/operations.md#telemetry). | nothing exported |
+| `OTEL_*` | OpenTelemetry traces, metrics, and logs, such as `OTEL_EXPORTER_OTLP_ENDPOINT`. See [`docs/user/operations.md`](docs/user/operations.md#telemetry). | nothing exported |
 
-Trowel reloads the config when the file changes and on `SIGHUP`, and keeps the running config when the new one fails. See [`docs/operations.md`](docs/operations.md#reload).
+Trowel reloads the config when the file changes and on `SIGHUP`, and keeps the running config when the new one fails. See [`docs/user/operations.md`](docs/user/operations.md#reload).
 
 Endpoints: `/healthz` (process up), `/readyz` (NATS connected and consumers running), plus every configured webhook path. Health is served on the same listener.
 
-Secrets can be inline, read from files, or read from OpenBao or Vault over https or a unix socket at startup and on reload. See [`docs/secrets.md`](docs/secrets.md), [`docs/configuration.md`](docs/configuration.md), and the annotated [`config.example.yml`](config.example.yml).
+Secrets can be inline, read from files, or read from OpenBao or Vault over https or a unix socket at startup and on reload. See [`docs/user/secrets.md`](docs/user/secrets.md), [`docs/user/configuration.md`](docs/user/configuration.md), and the annotated [`config.example.yml`](config.example.yml).
 
 ## Install
 
-- APT, RPM, and AUR (`trowel-bin`) packages from [repo.wyrd.foo](https://repo.wyrd.foo), with a systemd unit. See [`docs/install.md`](docs/install.md).
+- APT, RPM, and AUR (`trowel-bin`) packages from [repo.wyrd.foo](https://repo.wyrd.foo), with a systemd unit. See [`docs/user/install.md`](docs/user/install.md).
 - Container image `ghcr.io/wyrd-company/trowel`.
 - Release archives and checksums on [GitHub releases](https://github.com/wyrd-company/trowel/releases).
-- Devcontainer Feature `ghcr.io/wyrd-company/trowel/trowel`, which runs Trowel under s6-overlay. See [`docs/devcontainer.md`](docs/devcontainer.md). Its source is [`features/`](features).
+- Devcontainer Feature `ghcr.io/wyrd-company/trowel/trowel`, which runs Trowel under s6-overlay. See [`docs/user/devcontainer.md`](docs/user/devcontainer.md). Its source is [`features/`](features).
 
 ## Development
 
@@ -66,7 +66,7 @@ The end-to-end test starts an embedded NATS server. The OpenBao tests run a real
 
 Feature tests need Docker and the [devcontainer CLI](https://github.com/devcontainers/cli): `task feature:test` and `task feature:runtime` install a binary built from the checkout.
 
-`task demo` records `docs/assets/demo.gif` from [`docs/demo/demo.tape`](docs/demo/demo.tape) with vhs in Docker.
+`task demo` records `docs/user/assets/demo.gif` from [`docs/demo/demo.tape`](docs/demo/demo.tape) with vhs in Docker.
 
 ## Releases
 
@@ -76,7 +76,7 @@ Pushing a release tag:
 
 1. Proves the pinned [repo.wyrd.foo](https://github.com/wyrd-company/repo.wyrd.foo) publisher contract, then creates the GitHub release with archives, DEB and RPM packages, `checksums.txt`, and notes from `CHANGELOG.md`.
 2. Publishes the multi-arch image as `:<version>`, `:<major>.<minor>`, and `:latest`. Nothing publishes from `main` alone.
-3. After the release succeeds, submits the release manifest to repo.wyrd.foo, publishes `docs/` to wyrd.foo, and publishes the devcontainer Feature.
+3. After the release succeeds, submits the release manifest to repo.wyrd.foo, publishes `docs/user/` to wyrd.foo, and publishes the devcontainer Feature.
 
 `REPO_WYRD_FOO_PUBLISHER_COMMIT` in `.github/workflows/release.yml` pins the repo.wyrd.foo commit whose publisher contract and `config/products.json` each release is checked against. Move it when repo.wyrd.foo changes that contract or trowel's allowlist entry.
 
