@@ -1,7 +1,7 @@
-# Records docs/assets/demo.gif. Run docs/demo/record.sh (task demo) from the
+# Records docs/user/assets/demo.gif. Run docs/demo/record.sh (task demo) from the
 # repository root; it runs this tape inside docs/demo/Dockerfile.
 
-Output docs/assets/demo.gif
+Output docs/user/assets/demo.gif
 
 Require trowel
 Require nats-server

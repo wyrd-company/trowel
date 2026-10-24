@@ -1,7 +1,7 @@
 ---
 title: Dev container Feature
+product: trowel
 order: 5
-docs: true
 ---
 
 `ghcr.io/wyrd-company/trowel/trowel` installs Trowel in a dev container and

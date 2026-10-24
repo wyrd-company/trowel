@@ -164,7 +164,7 @@ tasks:
       - BASE_IMAGE={{.FEATURE_BASE_IMAGE}} features/test/trowel/runtime.sh
 
   demo:
-    desc: Record docs/assets/demo.gif with vhs (needs Docker)
+    desc: Record docs/user/assets/demo.gif with vhs (needs Docker)
     cmds:
       - docs/demo/record.sh
 
