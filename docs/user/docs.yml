@@ -48,4 +48,4 @@ products:
           - method: docker
             command: docker pull ghcr.io/wyrd-company/trowel:latest
       - kind: devcontainer-feature
-        ref: ghcr.io/wyrd-company/trowel/trowel:1
+        ref: ghcr.io/wyrd-company/trowel/trowel:0
