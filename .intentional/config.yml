@@ -22,7 +22,24 @@ release-units:
       file: features/src/trowel/devcontainer-feature.json
       mode: committed
       pointer: /version
+    - adapter: yaml
+      file: docs/user/docs.yml
+      mode: committed
+      pointer: /products/trowel/version
     tags:
       primary:
         role: primary
         template: '{version}'
+  trowel-docs:
+    path: docs/user
+    depends-on:
+    - trowel
+    projections:
+    - adapter: yaml
+      file: docs.yml
+      mode: committed
+      pointer: /products/trowel/docs-version
+    tags:
+      primary:
+        role: primary
+        template: '{id}@{version}'
