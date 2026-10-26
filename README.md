@@ -76,7 +76,7 @@ Pushing a release tag:
 
 1. Proves the pinned [repo.wyrd.foo](https://github.com/wyrd-company/repo.wyrd.foo) publisher contract, then creates the GitHub release with archives, DEB and RPM packages, `checksums.txt`, and notes from `CHANGELOG.md`.
 2. Publishes the multi-arch image as `:<version>`, `:<major>.<minor>`, and `:latest`. Nothing publishes from `main` alone.
-3. After the release succeeds, submits the release manifest to repo.wyrd.foo, publishes `docs/user/` to wyrd.foo, and publishes the devcontainer Feature.
+3. After the release succeeds, submits the release manifest to repo.wyrd.foo, publishes the product and `docs/user/` to wyrd.foo through the wyrd.foo v2 reusable workflow, and publishes the devcontainer Feature.
 
 `REPO_WYRD_FOO_PUBLISHER_COMMIT` in `.github/workflows/release.yml` pins the repo.wyrd.foo commit whose publisher contract and `config/products.json` each release is checked against. Move it when repo.wyrd.foo changes that contract or trowel's allowlist entry.
 
@@ -87,4 +87,6 @@ Publishing uses these repository or organization secrets:
 - `WYRD_TOOLS_DOCS_PUBLISHER_APP_ID`
 - `WYRD_TOOLS_DOCS_PUBLISHER_PRIVATE_KEY`
 
-Recover a failed step by dispatching Submit package release, Publish docs, or Publish devcontainer Feature with the release tag.
+Pushing a docs tag, `trowel-docs@<version>`, publishes the docs alone. A docs-only fix is a `trowel-docs` intent: it releases the docs unit on its own. A push to `main` does not publish docs.
+
+Recover a failed step by dispatching Submit package release, Publish to wyrd.foo (with the tag or commit as `ref`), or Publish devcontainer Feature with the release tag.
