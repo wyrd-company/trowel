@@ -1,20 +1,38 @@
-name: Publish docs
+name: Publish to wyrd.foo
 
-# Runs after each successful Release. A release created with GITHUB_TOKEN
-# cannot trigger a release event, so this follows the workflow run instead.
-# Dispatch it by hand to republish the docs of an existing release.
+# Publishes docs/user and the release data to wyrd.foo after each successful
+# Release (the code unit, trowel), when a docs unit tag (trowel-docs@{version})
+# is pushed, and on a manual run. A plain push to main does not publish. The
+# code unit follows the Release workflow instead of the tag push on its own:
+# wyrd.foo reads the GitHub Release of the tag, and a release created with
+# GITHUB_TOKEN cannot trigger a release event.
 on:
   workflow_run:
     workflows:
       - Release
     types:
       - completed
+  push:
+    tags:
+      - "trowel-docs@*"
   workflow_dispatch:
     inputs:
-      tag:
-        description: Bare stable SemVer release whose docs must publish
+      ref:
+        description: Tag or commit to publish
         required: true
-        type: string
+      feature:
+        description: Feature a product on the front page
+        type: boolean
+        default: false
+      feature-product:
+        description: The product key to feature; empty when the repo has one product
+        default: ""
+      feature-days:
+        description: How long the feature lasts, in days
+        default: "14"
+      feature-reason:
+        description: For example "New MCP server"; default "New release"
+        default: ""
 
 permissions:
   contents: read
@@ -22,31 +40,15 @@ permissions:
 jobs:
   publish:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Validate documentation release tag
-        shell: bash
-        env:
-          DOCS_TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$DOCS_TAG" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          then
-          echo "Documentation release tags must be bare stable SemVer values." >&2
-          exit 1
-          fi
-
-      - name: Check out released documentation
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ github.event.workflow_run.head_branch || inputs.tag }}
-
-      - name: Publish released documentation
-        uses: wyrd-company/wyrd.foo/.github/actions/publish-docs@fdb54b12e88eaf51a2b22714db63c80aba2ed88a # v1
-        with:
-          app-id: ${{ secrets.WYRD_TOOLS_DOCS_PUBLISHER_APP_ID }}
-          private-key: ${{ secrets.WYRD_TOOLS_DOCS_PUBLISHER_PRIVATE_KEY }}
+    uses: wyrd-company/wyrd.foo/.github/workflows/publish-docs.yml@v2
+    with:
+      ref: ${{ inputs.ref || github.event.workflow_run.head_branch || github.ref_name }}
+      feature: ${{ inputs.feature || false }}
+      feature-product: ${{ inputs.feature-product || '' }}
+      feature-days: ${{ inputs.feature-days || '14' }}
+      feature-reason: ${{ inputs.feature-reason || '' }}
+    secrets: inherit
