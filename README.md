@@ -72,6 +72,8 @@ Feature tests need Docker and the [devcontainer CLI](https://github.com/devconta
 
 [Intentional](https://wyrd.foo/docs/intentional) is the only version and release mechanism. Record a user-visible change with `intentional add`, and release with `intentional plan`, `apply`, and `tag`. `apply` writes `CHANGELOG.md` and the Feature version. Tags are bare SemVer values such as `0.1.0`.
 
+The docs unit can tag the same commit (`trowel-docs@<version>`), so the Release workflow builds the release tag by name. To rebuild a release, run Release by hand with the `tag` input; then run Publish to wyrd.foo with that tag as `ref`, because only tag-push release runs trigger docs publishing.
+
 Pushing a release tag:
 
 1. Proves the pinned [repo.wyrd.foo](https://github.com/wyrd-company/repo.wyrd.foo) publisher contract, then creates the GitHub release with archives, DEB and RPM packages, `checksums.txt`, and notes from `CHANGELOG.md`.

@@ -4,12 +4,23 @@ on:
   push:
     tags:
       - "[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, such as 1.2.3
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+# The docs unit tags the same commit (trowel-docs@<version>), so the
+# release tag is passed explicitly: GoReleaser can pick either tag.
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -25,13 +36,14 @@ jobs:
       - name: Check out release commit
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Validate release and publisher pins
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          if [[ ! "$RELEASE_TAG" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           then
           echo "Release tags must be bare stable SemVer values." >&2
           exit 1
@@ -68,8 +80,8 @@ jobs:
           release:compatibility
           PUBLISHER_ROOT=.repo-wyrd-foo-contract
           PUBLISHER_COMMIT="$REPO_WYRD_FOO_PUBLISHER_COMMIT"
-          RELEASE_VERSION="$GITHUB_REF_NAME"
-          RELEASE_COMMIT="$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")"
+          RELEASE_VERSION="$RELEASE_TAG"
+          RELEASE_COMMIT="$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")"
 
   release:
     name: Build and publish release
@@ -82,6 +94,7 @@ jobs:
       - name: Check out release commit
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Set up Go
@@ -93,7 +106,7 @@ jobs:
       - name: Write release notes from the changelog
         shell: bash
         env:
-          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           scripts/release-notes.sh "$RELEASE_VERSION" > "$RUNNER_TEMP/release-notes.md"
@@ -106,11 +119,12 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ env.RELEASE_TAG }}
 
       - name: Create package repository handoff
         shell: bash
         env:
-          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
           commit="$(git rev-list -n 1 "refs/tags/$RELEASE_VERSION")"
