@@ -28,6 +28,7 @@
   },
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/wyrd-company/devcontainers/ansible",
     "ghcr.io/wyrd-company/devcontainers/openbao-agent"
   ]
 }

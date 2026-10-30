@@ -64,7 +64,7 @@ task validate CONFIG=config.yml
 
 The end-to-end test starts an embedded NATS server. The OpenBao tests run a real `bao server -dev` and skip without one; set `TROWEL_BAO` to the binary or put `bao` on `PATH`. `task ci` fails when they skip.
 
-Feature tests need Docker and the [devcontainer CLI](https://github.com/devcontainers/cli): `task feature:test` and `task feature:runtime` install a binary built from the checkout.
+Feature tests need Docker and the [devcontainer CLI](https://github.com/devcontainers/cli): `task feature:test` and `task feature:runtime` install a binary built from the checkout. The Ansible Feature is not published yet, so `task feature:test` copies the Feature to `.tmp/feature-test` without `installsAfter` entries that do not resolve, and an `ansible-setup` fixture in `features/test/trowel/trowel-ansible-setup/` stands in for it.
 
 `task demo` records `docs/user/assets/demo.gif` from [`docs/demo/demo.tape`](docs/demo/demo.tape) with vhs in Docker.
 
