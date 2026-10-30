@@ -23,6 +23,6 @@ Installs [Trowel](https://wyrd.foo/docs/trowel), a webhook and [NATS JetStream](
 
 ## Ansible
 
-With the [Ansible](https://www.ansible.com) Feature, `ghcr.io/wyrd-company/devcontainers/ansible`, installed in the same dev container, Trowel starts only after the Feature's `ansible-setup` s6-rc oneshot succeeds, so Ansible can provision `/etc/trowel` and the secret file first. Trowel's Feature installs after Ansible's and adds the dependency only when that service definition exists. Without the Ansible Feature, Trowel starts as before. The dependency is independent of the OpenBao Agent Feature's.
+With the [Ansible](https://www.ansible.com) Feature, `ghcr.io/wyrd-company/devcontainers/ansible`, installed in the same dev container, Trowel starts only after the Feature's `ansible-setup` s6-rc oneshot succeeds, so Ansible can provision `/etc/trowel` and the secret file first. Trowel's Feature installs after Ansible's and adds the dependency only when that service definition exists. Without the Ansible Feature, Trowel starts as before. The dependency is independent of the [OpenBao](https://openbao.org) Agent Feature's.
 
 See [Dev container Feature](https://wyrd.foo/docs/trowel/devcontainer) for configuration, the secret file, and installed files.
