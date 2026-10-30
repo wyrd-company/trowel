@@ -173,6 +173,11 @@ touch "${service_dir}/dependencies.d/base"
 if [ -d /etc/s6-overlay/s6-rc.d/openbao-secrets ]; then
     touch "${service_dir}/dependencies.d/openbao-secrets"
 fi
+# The Ansible Feature owns the ansible-setup oneshot that provisions runtime
+# configuration. Wait for it only when its service definition is installed.
+if [ -d /etc/s6-overlay/s6-rc.d/ansible-setup ]; then
+    touch "${service_dir}/dependencies.d/ansible-setup"
+fi
 printf -v quoted_user '%q' "${service_user}"
 printf -v quoted_home '%q' "${service_home}"
 cat >"${service_dir}/run" <<EOF

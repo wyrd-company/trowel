@@ -17,6 +17,7 @@ check "trowel service receives the service user home" grep -q " HOME=${TROWEL_HO
 check "trowel service receives the service user name" grep -q ' USER=vscode ' /etc/s6-overlay/s6-rc.d/trowel/run
 check "trowel launcher loads the conventional secret file" grep -Fq 'secret_file=/run/openbao/secrets/trowel.env' /usr/local/bin/trowel-service
 check "trowel does not depend on an absent OpenBao Agent Feature" test ! -e /etc/s6-overlay/s6-rc.d/trowel/dependencies.d/openbao-secrets
+check "trowel does not depend on an absent Ansible Feature" test ! -e /etc/s6-overlay/s6-rc.d/trowel/dependencies.d/ansible-setup
 check "trowel Feature does not register systemd" test ! -e /etc/systemd/system/trowel.service
 
 reportResults

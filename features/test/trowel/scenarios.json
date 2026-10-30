@@ -17,5 +17,16 @@
       },
       "trowel": {}
     }
+  },
+  "trowel-ansible-setup": {
+    "build": {
+      "dockerfile": "Dockerfile",
+      "args": {
+        "BASE_IMAGE": "ghcr.io/wyrd-company/devcontainers/base:noble"
+      }
+    },
+    "features": {
+      "trowel": {}
+    }
   }
 }
