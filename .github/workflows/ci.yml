@@ -36,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           go install github.com/go-task/task/v3/cmd/task@v3.52.0
-          npm install --global @wyrd-company/intentional@0.1.6
+          npm install --global @wyrd-company/intentional@0.4.0
 
       - name: Install OpenBao
         shell: bash
