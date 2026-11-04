@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -ldflags="-s -w -X github.com/wyrd-company/trowel/internal/app.Version=${VERSION}" \
     -o /out/trowel ./cmd/trowel
 
-FROM alpine:3.22
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates wget
 RUN addgroup -S trowel && adduser -S -G trowel trowel
 COPY --from=build /out/trowel /usr/local/bin/trowel
