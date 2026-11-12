@@ -31,7 +31,8 @@ type App struct {
 	server *server.Server
 	gen    atomic.Pointer[generation]
 
-	// path, when set, is the config file reloaded on change or SIGHUP.
+	// path, when set, is the config file reloaded, with its snippets, on
+	// change or SIGHUP.
 	path     string
 	lastSum  [sha256.Size]byte
 	watching chan struct{}
@@ -47,12 +48,13 @@ type App struct {
 // Option configures an App.
 type Option func(*App)
 
-// WithReload reloads the configuration from path, whose current content is
-// raw, when the file changes or the process receives SIGHUP.
-func WithReload(path string, raw []byte) Option {
+// WithReload reloads the configuration from path and its snippets, whose
+// current content is srcs, when a file changes or the process receives
+// SIGHUP.
+func WithReload(path string, srcs []config.Source) Option {
 	return func(a *App) {
 		a.path = path
-		a.lastSum = sha256.Sum256(raw)
+		a.lastSum = config.Digest(srcs)
 	}
 }
 
@@ -165,24 +167,24 @@ func Main(args []string) int {
 
 	log.Info("trowel starting", "version", Version)
 
-	raw, err := os.ReadFile(*path)
+	srcs, err := config.Read(*path)
 	var cfg *config.Config
 	if err == nil {
-		cfg, err = config.Parse(raw)
+		cfg, err = config.ParseSources(srcs)
 	}
 	if err != nil {
 		log.Error("load config", "path", *path, "error", err)
 		return 2
 	}
 	if *validate {
-		log.Info("config valid", "path", *path, "webhooks", len(cfg.Webhooks), "subjects", len(cfg.Subjects))
+		log.Info("config valid", "path", *path, "snippets", len(srcs)-1, "webhooks", len(cfg.Webhooks), "subjects", len(cfg.Subjects))
 		return 0
 	}
 	if err := vault.Resolve(context.Background(), cfg, log); err != nil {
 		log.Error("resolve vault secrets", "error", err)
 		return 1
 	}
-	a, err := New(cfg, log, WithReload(*path, raw))
+	a, err := New(cfg, log, WithReload(*path, srcs))
 	if err != nil {
 		log.Error("start", "error", err)
 		return 1

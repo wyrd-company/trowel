@@ -94,7 +94,7 @@ func credsApp(t *testing.T, ns *natsserver.Server, raw []byte) (*logRecorder, fu
 	if err := vault.Resolve(context.Background(), cfg, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(cfg, slog.New(logs), WithReload(path, raw))
+	a, err := New(cfg, slog.New(logs), WithReload(path, []config.Source{{Path: path, Raw: raw}}))
 	if err != nil {
 		t.Fatal(err)
 	}

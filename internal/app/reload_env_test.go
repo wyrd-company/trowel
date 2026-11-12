@@ -120,18 +120,18 @@ func startReloadEnvAt(t *testing.T, place func(e *reloadEnv) string) *reloadEnv 
 	}
 	e := &reloadEnv{t: t, ns: ns, url: url, js: js, listen: freePort(t), logs: &logRecorder{}}
 	e.path = place(e)
-	raw, err := os.ReadFile(e.path)
+	srcs, err := config.Read(e.path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Parse(raw)
+	cfg, err := config.ParseSources(srcs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := vault.Resolve(context.Background(), cfg, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	e.app, err = New(cfg, slog.New(e.logs), WithReload(e.path, raw))
+	e.app, err = New(cfg, slog.New(e.logs), WithReload(e.path, srcs))
 	if err != nil {
 		t.Fatal(err)
 	}
