@@ -160,7 +160,11 @@ func ParseSources(srcs []Source) (*Config, error) {
 	}
 	var cfg Config
 	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}
-	if err := decodeStrict(doc, &cfg); err != nil {
+	// Decode the merged nodes directly rather than through decodeStrict.
+	// Marshalling would reorder anchors across files and rebind each alias
+	// by name; decoding the nodes follows each alias to the node it named
+	// in its own file. parseSource already rejected unknown fields.
+	if err := doc.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.setTemplates(doc, written)

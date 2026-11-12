@@ -158,6 +158,46 @@ func TestParseSourcesJoinsAnchoredList(t *testing.T) {
 	}
 }
 
+func TestParseSourcesKeepsAliasesInTheirFile(t *testing.T) {
+	relay := func(name, subject string) string {
+		return "  - name: " + name + "\n    subject: " + subject + "\n    destinations:\n      - name: d\n        command:\n          argv: [\"true\"]\n"
+	}
+	// The snippet's webhooks come before its subjects, the main file's
+	// after, so joining the lists puts the snippet's alias ahead of its
+	// anchor and after the main file's anchor of the same name.
+	snippet := Source{Path: "s.yml", Raw: []byte("webhooks:\n  - path: /b\n    subject: &event events.b\nsubjects:\n" + relay("from-snippet", "*event"))}
+	cases := map[string]Source{
+		"anchor name reused": {Raw: []byte("subjects:\n" + relay("from-main", "&event events.a") + "webhooks:\n  - path: /a\n    subject: a\n")},
+		"anchor only here":   {Raw: []byte("subjects:\n" + relay("from-main", "events.a") + "webhooks:\n  - path: /a\n    subject: a\n")},
+	}
+	for name, main := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := ParseSources([]Source{main, snippet})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Subjects[1].Subject; got != "events.b" {
+				t.Errorf("snippet relay subscribes to %q, want events.b", got)
+			}
+		})
+	}
+}
+
+func TestParseSourcesKeepsAliasedURLTemplate(t *testing.T) {
+	t.Setenv("TEST_ALIAS_HOST", "alias.example")
+	cfg, err := ParseSources([]Source{
+		{Raw: []byte("subjects:\n  - name: m\n    subject: m\n    destinations:\n      - name: d\n        http:\n          url: &u https://main.example/${TEST_ALIAS_HOST}\n")},
+		{Path: "s.yml", Raw: []byte("webhooks:\n  - path: /b\n    subject: &u b\nsubjects:\n  - name: s\n    subject: s\n    destinations:\n      - name: d\n        http:\n          url: &v https://${TEST_ALIAS_HOST}/x\n      - name: e\n        http:\n          url: *v\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := cfg.Subjects[1].Destinations[1].HTTP
+	if e.URL != "https://alias.example/x" || e.Template != "https://${TEST_ALIAS_HOST}/x" {
+		t.Errorf("aliased url %q template %q", e.URL, e.Template)
+	}
+}
+
 func TestParseSourcesTreatsEmptySectionAsUnset(t *testing.T) {
 	cfg, err := ParseSources([]Source{
 		{Raw: []byte("nats:\nwebhooks:\n")},
