@@ -66,6 +66,11 @@ nfpms:
         dst: /usr/lib/systemd/system/trowel.service
         file_info:
           mode: 0644
+      # Configuration snippets; Trowel reloads when they change.
+      - dst: /etc/trowel/conf.d
+        type: dir
+        file_info:
+          mode: 0755
     scripts:
       preinstall: packaging/preinstall.sh
       postinstall: packaging/postinstall.sh

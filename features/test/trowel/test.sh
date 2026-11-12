@@ -6,6 +6,7 @@ TROWEL_HOME_DIR="$(getent passwd vscode | cut -d: -f6)"
 
 check "trowel command exists globally" test -x /usr/local/bin/trowel
 check "starter configuration is valid" env HOME="${TROWEL_HOME_DIR}" /usr/local/bin/trowel -config /etc/trowel/config.yml -validate
+check "snippet directory exists" test -d /etc/trowel/conf.d
 check "starter configuration listens on loopback" grep -qx '  listen: "127.0.0.1:8080"' /etc/trowel/config.yml
 check "trowel launcher is executable" test -x /usr/local/bin/trowel-service
 check "trowel launcher passes the config as a flag" grep -q '^exec /usr/local/bin/trowel -config /etc/trowel/config.yml ' /usr/local/bin/trowel-service

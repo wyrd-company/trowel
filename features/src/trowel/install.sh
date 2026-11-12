@@ -113,7 +113,7 @@ fi
 
 config_dir=/etc/trowel
 config_file="${config_dir}/config.yml"
-install -d -m 0755 -o root -g root "${config_dir}"
+install -d -m 0755 -o root -g root "${config_dir}" "${config_dir}/conf.d"
 cat >"${config_file}" <<EOF
 # Starter configuration from the Trowel devcontainer Feature. Bind-mount a
 # project configuration over this file; see https://wyrd.foo/docs/trowel.
