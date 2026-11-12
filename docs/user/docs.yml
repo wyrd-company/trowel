@@ -8,8 +8,8 @@ assets:
 products:
   trowel:
     name: trowel
-    version: 0.2.0
-    docs-version: 0.1.0
+    version: 0.3.0
+    docs-version: 0.1.1
     tagline: Relay webhooks into NATS JetStream, and JetStream messages back out.
     blurb: >-
       A small Go service that verifies and transforms incoming webhooks, publishes
