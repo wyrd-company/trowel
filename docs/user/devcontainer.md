@@ -38,7 +38,9 @@ The installer verifies the release archive against the release's
 
 ## Configuration
 
-The Feature writes a starter configuration to `/etc/trowel/config.yml` with
+The Feature writes a starter configuration to `/etc/trowel/config.yml`, and
+creates an empty `/etc/trowel/conf.d` for
+[snippets](/docs/trowel/configuration#snippets), with
 one webhook, `POST /hooks/example`, that publishes to `trowel.example`. A
 JetStream stream must cover that subject before publishes succeed. Trowel
 exits when NATS is unreachable, and s6 restarts it until NATS is up.
@@ -54,7 +56,8 @@ Replace the starter configuration by bind-mounting a directory that holds a
 }
 ```
 
-Trowel reloads `config.yml` when it changes. Mount the directory rather than
+A `conf.d` directory in the mounted directory holds its snippets. Trowel
+reloads `config.yml` and the snippets when they change. Mount the directory rather than
 the file: an editor that saves by replacing the file leaves a single-file bind
 mount showing the old file until the container is recreated, and neither a
 reload nor a service restart sees the new one.

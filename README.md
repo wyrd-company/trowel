@@ -38,7 +38,7 @@ Flags and environment:
 | `TROWEL_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
 | `OTEL_*` | OpenTelemetry traces, metrics, and logs, such as `OTEL_EXPORTER_OTLP_ENDPOINT`. See [`docs/user/operations.md`](docs/user/operations.md#telemetry). | nothing exported |
 
-Trowel reloads the config when the file changes and on `SIGHUP`, and keeps the running config when the new one fails. See [`docs/user/operations.md`](docs/user/operations.md#reload).
+Snippets in a `conf.d` directory beside the config, such as `/etc/trowel/conf.d`, add webhooks and relays without editing it; see [`docs/user/configuration.md`](docs/user/configuration.md#snippets). Trowel reloads the config when the file or a snippet changes and on `SIGHUP`, and keeps the running config when the new one fails. See [`docs/user/operations.md`](docs/user/operations.md#reload).
 
 Endpoints: `/healthz` (process up), `/readyz` (NATS connected and consumers running), plus every configured webhook path. Health is served on the same listener.
 

@@ -1,4 +1,6 @@
 # trowel example configuration.
+# YAML files in the conf.d directory beside this file are snippets: their
+# webhooks and subjects are added after these, in file name order.
 # ${NAME} references are replaced from the environment at load time.
 # Every secret has three forms: inline, *_file (a mounted file), or *_vault
 # (a field of an OpenBao or Vault KV v2 secret, read once at startup).

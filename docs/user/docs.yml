@@ -27,7 +27,7 @@ products:
       - Reshapes headers and payload with JSONata and expands a subject template for each message.
       - Delivers JetStream messages to an HTTP endpoint, signed if you like, or to a command on stdin.
       - Keeps one durable consumer per destination, retries failed deliveries, and dead-letters them to a subject when attempts run out.
-      - Reads secrets inline, from files, or from OpenBao or Vault, and reloads the configuration and every secret without a restart.
+      - Reads secrets inline, from files, or from OpenBao or Vault, and reloads the configuration, its conf.d snippets, and every secret without a restart.
       - Exports OpenTelemetry traces, metrics and logs, with one trace following each webhook to every destination.
     media:
       - src: assets/demo.gif

@@ -6,8 +6,10 @@ install: true
 ---
 
 Trowel supports Linux on `amd64` and `arm64`. Packages install
-`/usr/bin/trowel` and a `trowel.service` systemd unit. A fresh installation
-stays stopped until you write `/etc/trowel/config.yml` and enable the unit.
+`/usr/bin/trowel`, a `trowel.service` systemd unit, and an empty
+`/etc/trowel/conf.d` for [snippets](/docs/trowel/configuration#snippets). A
+fresh installation stays stopped until you write `/etc/trowel/config.yml` and
+enable the unit.
 
 ## APT
 
@@ -50,6 +52,10 @@ sudo trowel -config /etc/trowel/config.yml -validate
 sudo systemctl enable --now trowel
 ```
 
+Add webhooks and relays as files in `/etc/trowel/conf.d` rather than editing
+`config.yml`, for example from a configuration management tool. The unit
+reloads when they change. See [Snippets](/docs/trowel/configuration#snippets).
+
 The unit reads optional `NAME=value` lines from `/etc/trowel/trowel.env`, so
 `${NAME}` references in the configuration can stay out of the file itself.
 Keep that file mode `0600`.
@@ -80,7 +86,8 @@ ReadWritePaths=/srv/deploy
 ```
 
 Upgrades restart a running relay on the new binary. Removing the package
-stops and disables the unit and leaves `/etc/trowel` in place.
+stops and disables the unit and leaves your files under `/etc/trowel` in
+place.
 
 ## Container image
 
@@ -93,7 +100,9 @@ docker run -d --name trowel \
 ```
 
 The image runs as an unprivileged `trowel` user, reads
-`/config/config.yml`, and has a health check on `/readyz`. Tags are the
+`/config/config.yml` and any snippets in `/config/conf.d`, and has a health
+check on `/readyz`. Mount a directory over `/config` to add snippets, such as
+`-v "$PWD/trowel:/config:ro"` with `config.yml` and `conf.d/` inside. Tags are the
 release version, `major.minor`, and `latest`, all from release tags.
 
 The repository's `docker-compose.yml` starts a JetStream-enabled NATS server,

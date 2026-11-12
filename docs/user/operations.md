@@ -33,7 +33,8 @@ Health is served on the same listener as the webhooks.
 
 ## Startup order
 
-1. Load and validate the configuration, expanding `${NAME}` references.
+1. Load the configuration file and its [snippets](/docs/trowel/configuration#snippets),
+   expand `${NAME}` references, and validate the result.
 2. Read every `*_vault` reference from OpenBao or Vault.
 3. Connect to NATS.
 4. Create or update one durable consumer per destination, named
@@ -45,17 +46,22 @@ the NATS connection.
 
 ## Reload
 
-Trowel watches the directory that holds its configuration file, and, when
-the path is a symlink, the directory of the file it points at now. When the
-file changes, Trowel waits until the directory is quiet for half a second, reads
-the file, and applies it if its content differs from the last attempt.
-`SIGHUP` reloads the file even when its content has not changed, which picks
-up rotated `*_file` and `*_vault` secrets. The packaged systemd unit maps
+Trowel watches the directory that holds its configuration file, the `conf.d`
+[snippet](/docs/trowel/configuration#snippets) directory beside it, and, when
+the path is a symlink, the directory of the file it points at now. When a file
+changes, Trowel waits until the directories are quiet for half a second, reads
+the configuration file and every snippet, and applies them if any file was
+added, removed, or changed since the last attempt. A `conf.d` created after
+Trowel starts is watched from then on. Edits to a file that a snippet symlink
+points at outside `conf.d` are not seen until the next change in a watched
+directory or `SIGHUP`. `SIGHUP` reloads even when nothing has changed, which
+picks up rotated `*_file` and `*_vault` secrets. The packaged systemd unit maps
 `systemctl reload trowel` to `SIGHUP`.
 
 A reload builds the new configuration while the current one keeps serving:
 
-1. Load and validate the file, and read every `*_vault` reference.
+1. Load and validate the file and its snippets, and read every `*_vault`
+   reference.
 2. Connect to NATS again only if the `nats` section changed.
 3. Build every webhook and destination, and create or update each consumer.
    Only when every consumer succeeds do the new consumers start taking
@@ -67,7 +73,7 @@ A reload builds the new configuration while the current one keeps serving:
 
 If any of steps 1 to 3 fails, Trowel logs `config reload failed; keeping
 current configuration` with the reason and keeps the current configuration.
-A success logs `config reloaded`.
+A success logs `config reloaded`, with the number of snippets loaded.
 
 Some changes still need a restart:
 

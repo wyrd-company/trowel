@@ -4,8 +4,10 @@ product: trowel
 order: 3
 ---
 
-Trowel reads one YAML file, given by `-config` or `TROWEL_CONFIG`. Unknown
-fields are errors. Check a file without connecting to anything:
+Trowel reads one YAML file, given by `-config` or `TROWEL_CONFIG`, and then
+any [snippets](#snippets) in the `conf.d` directory beside it. Unknown fields
+are errors. Check the configuration, snippets included, without connecting to
+anything:
 
 ```bash
 trowel -config /etc/trowel/config.yml -validate
@@ -13,11 +15,51 @@ trowel -config /etc/trowel/config.yml -validate
 
 `${NAME}` anywhere in a value is replaced from the environment at load time. A reference to an unset variable is a startup error. Every secret field also has a `*_file` variant that reads a mounted file and trims whitespace, and a `*_vault` variant that reads a field from OpenBao or Vault; see [Secrets](/docs/trowel/secrets). Exactly one form must be set.
 
-Trowel reloads the file when it changes and on `SIGHUP`. A file that fails
-to load or validate leaves the running configuration in place. See
-[Reload](/docs/trowel/operations#reload).
+Trowel reloads the configuration when the file or a snippet changes and on
+`SIGHUP`. A configuration that fails to load or validate leaves the running
+one in place. See [Reload](/docs/trowel/operations#reload).
 
 See [`config.example.yml`](https://github.com/wyrd-company/trowel/blob/main/config.example.yml) for a complete annotated example.
+
+## Snippets
+
+A snippet is a YAML file in the `conf.d` directory beside the configuration
+file: `/etc/trowel/conf.d` for `/etc/trowel/config.yml`, or `/config/conf.d`
+in the container image. Snippets let a package, a provisioning tool, or a
+project add its own webhooks and relays without editing the main file.
+
+- A snippet's name ends in `.yml` or `.yaml` and does not start with `.`.
+  Other files and subdirectories are ignored, so an editor's swap file or a
+  `README.md` does nothing. A symlink to a file is read through.
+- Trowel reads the configuration file first, then the snippets in lexical
+  order of file name. Prefix names with numbers, such as `10-github.yml`, to
+  fix the order.
+- `webhooks` and `subjects` lists are joined in that order. A webhook path or
+  relay name used twice across files is an error, as within one file.
+- `server`, `nats`, and `vault` may each be set in only one file, the
+  configuration file or a snippet. Setting one in two files is an error that
+  names both files, so no file silently overrides another.
+- Each snippet is a complete YAML document, with the same fields and
+  `${NAME}` references as the configuration file. Anchors do not reach across
+  files.
+- An error in a snippet names it. Any error fails the whole configuration:
+  Trowel does not start, or, on reload, keeps the running configuration.
+- A missing `conf.d` directory holds no snippets. A `conf.d` that exists but is
+  not a readable directory is an error.
+
+The DEB and RPM packages and the devcontainer Feature create an empty
+`/etc/trowel/conf.d`.
+
+```yaml
+# /etc/trowel/conf.d/20-deploy.yml
+webhooks:
+  - path: /hooks/deploy
+    subject: deploy.requested
+    verify:
+      static:
+        header: X-Deploy-Token
+        secret: ${DEPLOY_TOKEN}
+```
 
 ## `server`
 
