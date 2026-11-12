@@ -1,7 +1,7 @@
 /*
 ---
 relationships:
-  references: [types, defaults, validate, expand, display]
+  references: [types, defaults, validate, expand, display, sources]
 ---
 */
 
@@ -10,7 +10,6 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 
@@ -20,26 +19,7 @@ import (
 // Parse decodes YAML, expands environment references in values, applies
 // defaults, and validates.
 func Parse(raw []byte) (*Config, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
-	var cfg Config
-	if doc.Kind != 0 {
-		written, err := expandNode(&doc)
-		if err != nil {
-			return nil, err
-		}
-		if err := decodeStrict(&doc, &cfg); err != nil {
-			return nil, fmt.Errorf("parse config: %w", err)
-		}
-		cfg.setTemplates(&doc, written)
-	}
-	cfg.applyDefaults()
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+	return ParseSources([]Source{{Raw: raw}})
 }
 
 // decodeStrict decodes a node into v, rejecting unknown fields.
