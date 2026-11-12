@@ -158,6 +158,19 @@ func TestParseSourcesJoinsAnchoredList(t *testing.T) {
 	}
 }
 
+func TestParseSourcesTreatsEmptySectionAsUnset(t *testing.T) {
+	cfg, err := ParseSources([]Source{
+		{Raw: []byte("nats:\nwebhooks:\n")},
+		{Path: "s.yml", Raw: []byte("nats:\n  url: nats://n:4222\nwebhooks:\n  - path: /a\n    subject: a\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NATS.URL != "nats://n:4222" || len(cfg.Webhooks) != 1 {
+		t.Errorf("nats %+v, webhooks %+v", cfg.NATS, cfg.Webhooks)
+	}
+}
+
 func TestDigestCoversNamesAndContents(t *testing.T) {
 	base := []Source{{Path: "c.yml", Raw: []byte("a")}, {Path: "conf.d/1.yml", Raw: []byte("b")}}
 	same := []Source{{Path: "c.yml", Raw: []byte("a")}, {Path: "conf.d/1.yml", Raw: []byte("b")}}

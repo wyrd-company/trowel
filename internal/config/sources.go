@@ -137,10 +137,11 @@ func ParseSources(srcs []Source) (*Config, error) {
 			if val.Kind == yaml.AliasNode {
 				val = val.Alias
 			}
+			if val.Kind == yaml.ScalarNode && val.Tag == "!!null" {
+				// An empty section sets nothing; decodeStrict accepted it.
+				continue
+			}
 			if mergedSections[key.Value] {
-				if val.Kind != yaml.SequenceNode {
-					continue // null; decodeStrict accepted it
-				}
 				if l, ok := lists[key.Value]; ok {
 					l.Content = append(l.Content, val.Content...)
 					continue
